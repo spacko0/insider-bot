@@ -51,6 +51,23 @@ AUTH_TIER_ALIASES: Dict[str, str] = {
 }
 
 
+def _read_env_file(path: Path) -> dict[str, str]:
+    found: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return found
+    for line in lines:
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        key, _, value = text.partition("=")
+        key = key.strip()
+        if key:
+            found[key] = value.strip().strip('"').strip("'")
+    return found
+
+
 def _env_csv(source: Mapping[str, str], key: str) -> list:
     raw = source.get(key)
     if raw is None:
@@ -101,9 +118,9 @@ class Config:
         self.ZNC_USER = self._get("ZNC_USER").strip()
         self.ZNC_NETWORK = self._get("ZNC_NETWORK").strip()
         self.ZNC_IRC_NICK = self._get("ZNC_IRC_NICK").strip()
-        self._apply_connection_fallbacks()
         self.IRC_TLS = _flag(self._env, "IRC_TLS", "false")
         self.IRC_TLS_VERIFY = _flag(self._env, "IRC_TLS_VERIFY", "true")
+        self._apply_connection_fallbacks()
         self.IRC_WELCOME_TIMEOUT = int(self._get("IRC_WELCOME_TIMEOUT", "90"))
         self.IRC_HEALTH_MONITOR = _flag(self._env, "IRC_HEALTH_MONITOR", "true")
         self.IRC_ACTIVITY_TIMEOUT = int(self._get("IRC_ACTIVITY_TIMEOUT", "900"))
@@ -139,7 +156,7 @@ class Config:
         self.warnings: list[str] = []
 
     def _apply_connection_fallbacks(self) -> None:
-        """With ZNC on, a blank IRC_SERVER means the bouncer is on this machine."""
+        """Blank IRC_SERVER with ZNC on uses mod-bot's bouncer, never this machine."""
         if not self.IRC_SERVER:
             for key in ("ZNC_SERVER", "ZNC_HOST"):
                 host = self._get(key).strip()
@@ -148,8 +165,7 @@ class Config:
                     logger.info("Using bouncer address from %s", key)
                     break
         if not self.IRC_SERVER and self.IRC_USE_ZNC:
-            self.IRC_SERVER = "127.0.0.1"
-            logger.info("IRC_USE_ZNC is on and IRC_SERVER is empty; using 127.0.0.1")
+            self._borrow_modbot_endpoint()
         if self.IRC_NICKNAME:
             return
         if self.ZNC_IRC_NICK and "/" not in self.ZNC_IRC_NICK:
@@ -161,6 +177,33 @@ class Config:
         if account and "/" not in account:
             self.IRC_NICKNAME = account
             logger.info("IRC_NICKNAME is empty; using ZNC account name %s", account)
+
+    def _borrow_modbot_endpoint(self) -> None:
+        explicit = self._get("MODBOT_ENV_FILE").strip()
+        if explicit:
+            paths = [Path(explicit)]
+        else:
+            paths = [REPO_ROOT.parent / "mod-bot" / ".env", Path.home() / "mod-bot" / ".env"]
+        env: dict[str, str] = {}
+        used: Path | None = None
+        for path in paths:
+            if path.is_file():
+                env = _read_env_file(path)
+                used = path
+                break
+        host = (env.get("IRC_SERVER") or "").strip()
+        if not host or not used:
+            return
+        self._take_host(host)
+        port = (env.get("IRC_PORT") or "").strip()
+        if port.isdigit():
+            self.IRC_PORT = int(port)
+        tls = (env.get("IRC_TLS") or "").strip().lower()
+        if tls in ("true", "1", "yes"):
+            self.IRC_TLS = True
+        elif tls in ("false", "0", "no"):
+            self.IRC_TLS = False
+        logger.info("Using mod-bot IRC endpoint %s:%s", self.IRC_SERVER, self.IRC_PORT)
 
     def _take_host(self, host: str) -> None:
         if ":" in host and host.count(":") == 1:

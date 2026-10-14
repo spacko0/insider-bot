@@ -237,20 +237,46 @@ def test_znc_and_sasl_warns_and_keeps_znc(tmp_path):
     assert any("SASL is ignored" in message for message in config.warnings)
 
 
-def test_znc_without_irc_server_uses_local_bouncer(tmp_path):
+def test_znc_blank_server_uses_modbot_env_not_localhost(tmp_path):
+    mod_env = tmp_path / "mod.env"
+    mod_env.write_text(
+        "IRC_SERVER=bouncer.example.net\nIRC_PORT=6697\nIRC_TLS=true\nZNC_PASSWORD=other\n",
+        encoding="utf-8",
+    )
     config = Config(
         base_env(
             tmp_path / "x.db",
             IRC_SERVER="",
             IRC_NICKNAME="",
+            IRC_PORT="6667",
+            IRC_TLS="false",
             IRC_USE_ZNC="true",
             ZNC_USERNAME="InsiderBot/Example",
             ZNC_PASSWORD="secret",
+            MODBOT_ENV_FILE=str(mod_env),
         )
     )
-    assert config.IRC_SERVER == "127.0.0.1"
+    assert config.IRC_SERVER == "bouncer.example.net"
+    assert config.IRC_PORT == 6697
+    assert config.IRC_TLS is True
     assert config.IRC_NICKNAME == "InsiderBot"
-    assert not any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
+    assert config.ZNC_PASSWORD == "secret"
+    assert config.IRC_SERVER != "127.0.0.1"
+
+
+def test_znc_without_modbot_env_does_not_use_localhost(tmp_path):
+    config = Config(
+        base_env(
+            tmp_path / "x.db",
+            IRC_SERVER="",
+            IRC_USE_ZNC="true",
+            ZNC_USERNAME="InsiderBot/Example",
+            ZNC_PASSWORD="secret",
+            MODBOT_ENV_FILE=str(tmp_path / "missing.env"),
+        )
+    )
+    assert config.IRC_SERVER == ""
+    assert any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
 
 
 def test_missing_server_and_owner_are_warnings(tmp_path):
