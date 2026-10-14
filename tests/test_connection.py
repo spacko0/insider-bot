@@ -65,6 +65,7 @@ def test_welcome_does_not_tell_the_bouncer_to_reconnect():
     irc_conn.on_welcome(irc_conn.connection, event)
     irc_conn.on_welcome(irc_conn.connection, event)
     irc_conn.connection.privmsg.assert_not_called()
+    irc_conn.connection.nick.assert_not_called()
 
 
 def test_on_disconnect_clears_welcome_and_does_not_reconnect_when_disabled():

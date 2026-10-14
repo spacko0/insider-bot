@@ -461,12 +461,6 @@ class IRCConnection(SimpleIRCClient):
             ", ".join(self._channels) if self._channels else "(none configured)",
         )
         logger.info("Private messages must be sent to %s", self.nickname)
-        if getattr(self.config, "IRC_USE_ZNC", False) and wanted:
-            try:
-                connection.nick(wanted)
-                logger.info("IRC nick set to %s", wanted)
-            except Exception as exc:
-                logger.warning("Could not set IRC nick %s: %s", wanted, exc)
         self.start_irc_health_monitor()
         if self.config.AUTO_IDENTIFY and self.config.NICKSERV_PASSWORD and not self.config.IRC_USE_SASL:
             connection.privmsg("NickServ", f"IDENTIFY {self.config.NICKSERV_PASSWORD}")
