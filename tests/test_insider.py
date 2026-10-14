@@ -1,0 +1,241 @@
+from pathlib import Path
+
+import pytest
+
+from commands.urls import classify_url
+from store.registry import Registry, RegistryError
+from tests.support import base_env, channel_event, make_handler, pm_event, visible
+from utils.config import Config
+
+
+def test_classify_reddit_and_articles():
+    assert classify_url("https://www.reddit.com/r/news/comments/abc/title") == "reddit"
+    assert classify_url("https://redd.it/abc") == "reddit"
+    assert classify_url("https://v.redd.it/xyz") == "reddit"
+    assert classify_url("https://example.com/story") == "article"
+    assert classify_url("ftp://example.com/file") is None
+    assert classify_url("not a url") is None
+
+
+def test_registry_register_ban_and_news(tmp_path):
+    registry = Registry(tmp_path / "t.db")
+    assert registry.register("Ada", "MidnightScene", "Editor", by="ada") == "created"
+    assert registry.register("ada", "MidnightScene", "Senior Editor", by="ada") == "updated"
+    row = registry.get_registered("ADA")
+    assert row["position"] == "Senior Editor"
+    assert row["site"] == "MidnightScene"
+    assert registry.is_registered("ada")
+    assert registry.ban("Eve", "MidnightScene", "leaked screenshots", by="ada") == "created"
+    assert registry.ban("eve", "OtherSite", "spam", by="ada") == "created"
+    assert registry.ban("Eve", "midnightscene", "still leaking", by="bob") == "updated"
+    banned = registry.list_banned("MidnightScene")
+    assert len(banned) == 1
+    assert banned[0]["reason"] == "still leaking"
+    assert len(registry.list_banned()) == 2
+    assert registry.unban("Eve", "OtherSite") == 1
+    assert len(registry.list_banned()) == 1
+    status, item = registry.add_news("https://redd.it/abc", "reddit", "thread", by="ada")
+    assert status == "created"
+    again, dup = registry.add_news("https://redd.it/abc", "reddit", "", by="ada")
+    assert again == "duplicate"
+    assert dup["id"] == item["id"]
+    assert registry.delete_news(item["id"])
+    assert registry.list_news(10) == []
+    with pytest.raises(RegistryError):
+        registry.register("has space", "Site", "Role", by="ada")
+
+
+def test_stranger_must_register_before_member_commands(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(channel_event(".news", "Carol"))
+    assert "Register first" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event("hello", "Carol"))
+    assert conn.sent == []
+
+
+def test_anyone_can_register_own_nick_not_someone_else(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    assert registry.is_registered("carol")
+    assert "Registered Carol" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".register Alice MidnightScene Editor", "Carol"))
+    assert "own nick" in visible(conn)
+    assert registry.get_registered("alice") is None
+
+
+def test_admin_can_register_someone_else(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Carol OtherSite Uploader", "Alice"))
+    assert registry.get_registered("carol")["site"] == "OtherSite"
+    assert "Registered Carol" in visible(conn)
+
+
+def test_registered_user_can_add_news_and_bans_but_not_the_roster(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Dave MidnightScene Moderator", "Dave"))
+    conn.sent.clear()
+    handler.handle(channel_event(".addnews https://example.com/a insider note", "Dave"))
+    assert "Added #1 (article)" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".addnews https://www.reddit.com/r/x/comments/1/post", "Dave"))
+    assert "reddit post" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".addnews https://example.com/a", "Dave"))
+    assert "Already listed as #1" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".news 1", "Dave"))
+    text = visible(conn)
+    assert "[reddit]" in text
+    assert "example.com/a" not in text
+    conn.sent.clear()
+    handler.handle(channel_event(".banuser Eve MidnightScene leaked a screen", "Dave"))
+    assert "Banned for Eve on MidnightScene" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".banned MidnightScene", "Dave"))
+    assert "Eve" in visible(conn)
+    assert "leaked a screen" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".registered", "Dave"))
+    assert "bot admins and above" in visible(conn)
+
+
+def test_bot_user_can_use_member_commands_without_registering(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    assert not registry.is_registered("bob")
+    handler.handle(channel_event(".addnews https://example.com/from-bot", "Bob"))
+    assert "Added #1" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".banuser Eve Scene spam links", "Bob"))
+    assert "Banned for Eve" in visible(conn)
+
+
+def test_registered_list_is_pm_from_a_channel(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    conn.sent.clear()
+    handler.handle(channel_event(".registered", "Alice", "#staff"))
+    targets = {target for target, _message in conn.sent}
+    assert "Alice" in targets
+    assert "#staff" in targets
+    private = visible_for(conn, "Alice")
+    assert "Carol" in private
+    assert "Editor" in private
+    assert "MidnightScene" in private
+    assert "private message" in visible_for(conn, "#staff")
+
+
+def test_registered_list_in_pm_stays_in_pm(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(pm_event(".register Carol MidnightScene Editor", "Alice"))
+    conn.sent.clear()
+    handler.handle(pm_event(".registered", "Alice"))
+    assert {target for target, _message in conn.sent} == {"Alice"}
+    assert "Carol" in visible(conn)
+    assert "private message" not in visible(conn)
+
+
+def test_commands_outside_command_channels_are_ignored(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol", "#random"))
+    assert conn.sent == []
+    assert not registry.is_registered("carol")
+
+
+def test_pm_to_someone_else_is_ignored(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    event = pm_event(".help", "Carol")
+    event["incoming_target"] = "SomeOtherNick"
+    handler.handle(event)
+    assert conn.sent == []
+
+
+def test_admin_maintenance_and_owner_exit(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+
+    class App:
+        def __init__(self):
+            self.exited = False
+
+        def schedule_force_exit(self, delay=1.0):
+            self.exited = True
+
+    app = App()
+    handler.application = app
+    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    handler.handle(channel_event(".banuser Eve MidnightScene reason", "Carol"))
+    handler.handle(channel_event(".addnews https://example.com/z", "Carol"))
+    conn.sent.clear()
+    handler.handle(channel_event(".unban Eve MidnightScene", "Bob"))
+    assert "bot admins" in visible(conn)
+    assert registry.list_banned()
+    conn.sent.clear()
+    handler.handle(channel_event(".unban Eve", "Alice", "#staff"))
+    assert registry.list_banned() == []
+    conn.sent.clear()
+    handler.handle(channel_event(".delnews 1", "Alice", "#staff"))
+    assert registry.list_news(5) == []
+    conn.sent.clear()
+    handler.handle(channel_event(".unregister Carol", "Alice", "#staff"))
+    assert not registry.is_registered("carol")
+    conn.sent.clear()
+    handler.handle(channel_event(".join #extra", "Alice", "#staff"))
+    assert conn.joined == ["#extra"]
+    conn.sent.clear()
+    handler.handle(channel_event(".exit", "Alice", "#staff"))
+    assert app.exited is False
+    assert "bot owner" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".exit", "OwnerNick", "#staff"))
+    assert app.exited is True
+
+
+def test_moderator_below_channel_rank_is_silent_for_admin_command(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(channel_event(".registered", "ModNick", "#staff"))
+    assert conn.sent == []
+    handler.handle(channel_event(".registered", "ModNick", "#insiders"))
+    assert "bot admins and above" in visible(conn)
+
+
+def test_auth_tiers_and_channel_gate():
+    config = Config(
+        base_env(
+            Path("data/unused.db"),
+            CODER="DevNick",
+            TEAM_LEADERS="LeadNick",
+        )
+    )
+    assert config.resolve_user_auth_tier("OwnerNick") == "owner"
+    assert config.resolve_user_auth_tier("DevNick") == "coder"
+    assert config.resolve_user_auth_tier("LeadNick") == "team_leaders"
+    assert config.resolve_user_auth_tier("Alice") == "admin"
+    assert config.resolve_user_auth_tier("ModNick") == "moderators"
+    assert config.resolve_user_auth_tier("Bob") == "torrent_moderators"
+    assert config.resolve_user_auth_tier("Carol") is None
+    assert config.is_admin_or_above("LeadNick")
+    assert not config.is_admin_or_above("ModNick")
+    assert not config.is_owner("DevNick")
+    assert config.pubmsg_min_rank_for_channel("#staff") == 3
+    assert config.pubmsg_min_rank_for_channel("#insiders") == 0
+    assert config.is_bot_user("Bob")
+
+
+def test_znc_and_sasl_cannot_both_be_set(tmp_path):
+    with pytest.raises(ValueError, match="either IRC_USE_ZNC or IRC_USE_SASL"):
+        Config(
+            base_env(
+                tmp_path / "x.db",
+                IRC_USE_ZNC="true",
+                IRC_USE_SASL="true",
+                ZNC_USERNAME="InsiderBot/Example",
+                ZNC_PASSWORD="secret",
+                SASL_PASSWORD="secret",
+            )
+        )
+
+
+def visible_for(connection, target: str) -> str:
+    text = "\n".join(message for sent_target, message in connection.sent if sent_target == target)
+    return text.replace("\u00a0", " ").replace("\x11", "")
