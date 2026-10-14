@@ -222,18 +222,42 @@ def test_auth_tiers_and_channel_gate():
     assert config.is_bot_user("Bob")
 
 
-def test_znc_and_sasl_cannot_both_be_set(tmp_path):
-    with pytest.raises(ValueError, match="either IRC_USE_ZNC or IRC_USE_SASL"):
-        Config(
-            base_env(
-                tmp_path / "x.db",
-                IRC_USE_ZNC="true",
-                IRC_USE_SASL="true",
-                ZNC_USERNAME="InsiderBot/Example",
-                ZNC_PASSWORD="secret",
-                SASL_PASSWORD="secret",
-            )
+def test_znc_and_sasl_warns_and_keeps_znc(tmp_path):
+    config = Config(
+        base_env(
+            tmp_path / "x.db",
+            IRC_USE_ZNC="true",
+            IRC_USE_SASL="true",
+            ZNC_USERNAME="InsiderBot/Example",
+            ZNC_PASSWORD="secret",
+            SASL_PASSWORD="secret",
         )
+    )
+    assert config.IRC_USE_SASL is False
+    assert any("SASL is ignored" in message for message in config.warnings)
+
+
+def test_missing_irc_settings_warn_instead_of_exiting(tmp_path):
+    config = Config(
+        base_env(
+            tmp_path / "x.db",
+            IRC_SERVER="",
+            IRC_NICKNAME="",
+            IRC_USE_ZNC="true",
+            ZNC_USERNAME="InsiderBot/Example",
+            ZNC_PASSWORD="secret",
+            ZNC_SERVER="znc.example.org",
+        )
+    )
+    assert config.IRC_SERVER == "znc.example.org"
+    assert config.IRC_NICKNAME == "InsiderBot"
+    assert not any(message.startswith("IRC_NICKNAME is not set") for message in config.warnings)
+
+
+def test_missing_server_and_owner_are_warnings(tmp_path):
+    config = Config(base_env(tmp_path / "x.db", IRC_SERVER="", BOT_OWNER=""))
+    assert any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
+    assert any(message.startswith("BOT_OWNER is not set") for message in config.warnings)
 
 
 def visible_for(connection, target: str) -> str:

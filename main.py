@@ -135,6 +135,11 @@ class Application:
             logger.error("Error handling IRC message", exc_info=True)
 
     def _connect_irc(self) -> bool:
+        if not self.config.IRC_SERVER or not self.config.irc_connect_nickname:
+            logger.warning(
+                "IRC connection skipped. Set IRC_SERVER and a nickname in .env, then restart."
+            )
+            return False
         attempts = 0
         max_attempts = 5
         logger.info(

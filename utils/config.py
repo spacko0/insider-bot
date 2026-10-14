@@ -101,6 +101,7 @@ class Config:
         self.ZNC_USER = self._get("ZNC_USER").strip()
         self.ZNC_NETWORK = self._get("ZNC_NETWORK").strip()
         self.ZNC_IRC_NICK = self._get("ZNC_IRC_NICK").strip()
+        self._apply_connection_fallbacks()
         self.IRC_TLS = _flag(self._env, "IRC_TLS", "false")
         self.IRC_TLS_VERIFY = _flag(self._env, "IRC_TLS_VERIFY", "true")
         self.IRC_WELCOME_TIMEOUT = int(self._get("IRC_WELCOME_TIMEOUT", "90"))
@@ -135,6 +136,28 @@ class Config:
         self._rebuild_command_channel_rules()
         self._rebuild_channel_allowed_commands()
         self._load_auth_sets()
+        self.warnings: list[str] = []
+
+    def _apply_connection_fallbacks(self) -> None:
+        """ZNC account fields can supply a nick. The bouncer address stays IRC_SERVER."""
+        if not self.IRC_SERVER:
+            for key in ("ZNC_SERVER", "ZNC_HOST"):
+                host = self._get(key).strip()
+                if host:
+                    self.IRC_SERVER = host
+                    logger.warning("IRC_SERVER is not set; using %s", key)
+                    break
+        if self.IRC_NICKNAME:
+            return
+        if self.ZNC_IRC_NICK and "/" not in self.ZNC_IRC_NICK:
+            self.IRC_NICKNAME = self.ZNC_IRC_NICK
+            logger.warning("IRC_NICKNAME is not set; using ZNC_IRC_NICK")
+            return
+        account = self.ZNC_USER or self.ZNC_USERNAME.split("/", 1)[0]
+        account = account.strip()
+        if account and "/" not in account:
+            self.IRC_NICKNAME = account
+            logger.warning("IRC_NICKNAME is not set; using ZNC account name %s", account)
 
     def _load_auth_sets(self) -> None:
         owner_users = [u.lower() for u in self._csv("OWNER_USERS")]
@@ -326,30 +349,36 @@ class Config:
             return self.ZNC_IRC_NICK
         return self.IRC_NICKNAME
 
+    def _warn_config(self, message: str) -> None:
+        self.warnings.append(message)
+        logger.warning(message)
+
     def _validate(self) -> None:
-        missing = [name for name in ("IRC_SERVER", "IRC_NICKNAME") if not getattr(self, name)]
-        if missing:
-            raise ValueError("Missing required environment variable: " + ", ".join(missing))
         if not self.COMMAND_PREFIX or any(ch.isspace() for ch in self.COMMAND_PREFIX):
-            raise ValueError("COMMAND_PREFIX must be a non-empty string without spaces")
-        if not self.BOT_OWNER_USERS:
-            raise ValueError("Set BOT_OWNER (or legacy OWNER_USERS) with at least one bot operator nick")
-        if self.IRC_USE_ZNC and self.IRC_USE_SASL:
-            raise ValueError(
-                "Use either IRC_USE_ZNC or IRC_USE_SASL, not both. "
-                "ZNC authenticates with PASS + USER; SASL is for a direct IRC connection."
+            self.COMMAND_PREFIX = "."
+            self._warn_config("COMMAND_PREFIX is invalid. Using '.'")
+        if not self.IRC_SERVER:
+            self._warn_config(
+                "IRC_SERVER is not set. ZNC username and password do not include the bouncer address."
             )
+        if not self.IRC_NICKNAME:
+            self._warn_config("IRC_NICKNAME is not set.")
+        if not self.BOT_OWNER_USERS:
+            self._warn_config("BOT_OWNER is not set. No IRC nick has the owner tier.")
+        if self.IRC_USE_ZNC and self.IRC_USE_SASL:
+            self.IRC_USE_SASL = False
+            self._warn_config("IRC_USE_ZNC and IRC_USE_SASL are both set. SASL is ignored.")
         if self.IRC_USE_SASL and not (self.SASL_PASSWORD or self.NICKSERV_PASSWORD):
-            raise ValueError("IRC_USE_SASL requires SASL_PASSWORD or NICKSERV_PASSWORD")
+            self._warn_config("IRC_USE_SASL is set but SASL_PASSWORD and NICKSERV_PASSWORD are empty.")
         if self.IRC_USE_ZNC:
             if self.IRC_NICKNAME and "/" in self.IRC_NICKNAME:
-                raise ValueError(
-                    "IRC_NICKNAME cannot contain '/'. Put user/network in ZNC_USERNAME, not NICK."
-                )
+                self._warn_config("IRC_NICKNAME contains '/'. Put user/network in ZNC_USERNAME, not NICK.")
             if self.ZNC_IRC_NICK and "/" in self.ZNC_IRC_NICK:
-                raise ValueError("ZNC_IRC_NICK cannot contain '/'. That form belongs in ZNC_USERNAME.")
+                self._warn_config("ZNC_IRC_NICK contains '/'. That form belongs in ZNC_USERNAME.")
             if not self.znc_ident_username or not self.ZNC_PASSWORD:
-                raise ValueError("IRC_USE_ZNC requires ZNC_PASSWORD and ZNC_USERNAME (or ZNC_USER + ZNC_NETWORK)")
+                self._warn_config(
+                    "IRC_USE_ZNC is set but ZNC_PASSWORD or ZNC_USERNAME (or ZNC_USER + ZNC_NETWORK) is empty."
+                )
         tls_ports = {6697, 6699, 7000, 7070, 9999}
         if not self.IRC_TLS and self.IRC_PORT in tls_ports:
             logger.error(
