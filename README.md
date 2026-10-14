@@ -41,7 +41,7 @@ That starts a detached session named `insider-bot`. Attach with `tmux attach -t 
 
 **Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`). Higher tiers include the lower ones. Owner commands require the owner tier exactly.
 
-**Registered users** are nicks stored by `.register`, with a site and a position. Anyone can register their own nick. A bot admin (admin, team leader, coder, or owner) can register someone else.
+**Registered users** are nicks stored by `.register <site> <position>`. The same nick can be on more than one site, each with its own position. A bot admin sets someone else's site and position with `.update <nick> <site> <position>`.
 
 Member commands (news and bans) work for a registered nick or any bot user.
 
@@ -49,14 +49,15 @@ Member commands (news and bans) work for a registered nick or any bot user.
 
 | Command | Who |
 | --- | --- |
-| `.register <nick> <site> <position>` | Anyone, for their own nick. Admins and above can register another nick. |
+| `.register <site> <position>` | Anyone, for their own nick. Repeat it to add another site or change the position on a site. |
 | `.help` | Anyone |
 | `.news [count]` | Registered users and bot users |
 | `.addnews <url> [note]` | Registered users and bot users. Reddit hosts are stored as reddit posts; other http(s) links are articles. |
 | `.banned [site]` | Registered users and bot users |
 | `.banuser <user> <site> <reason>` | Registered users and bot users. Site is included so a ban records where it happened. |
-| `.unregister <nick>` | Your own nick, or any nick if you are an admin or above |
+| `.unregister [site]` | Your own sites. Omit the site to drop every site. Admins and above can use `.unregister <nick> [site]`. |
 | `.registered [site]` | Bot admins and above. From a channel the list is sent in a private message. |
+| `.update <nick> <site> <position>` | Bot admins and above. Sets that nick's position on a site, or adds the site. |
 | `.unban <user> [site]` | Bot admins and above. Omit the site to clear every site for that nick. |
 | `.delnews <id>` | Bot admins and above |
 | `.join <#channel>` / `.part <#channel>` | Bot admins and above |

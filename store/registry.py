@@ -43,13 +43,14 @@ class Registry:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS registered (
-                    nick TEXT PRIMARY KEY,
+                    nick TEXT NOT NULL,
                     display_nick TEXT NOT NULL,
                     site_key TEXT NOT NULL,
                     site TEXT NOT NULL,
                     position TEXT NOT NULL,
                     registered_by TEXT NOT NULL,
-                    registered_at TEXT NOT NULL
+                    registered_at TEXT NOT NULL,
+                    PRIMARY KEY (nick, site_key)
                 );
                 CREATE TABLE IF NOT EXISTS banned (
                     nick TEXT NOT NULL,
@@ -71,6 +72,41 @@ class Registry:
                 );
                 """
             )
+            self._migrate_registered(conn)
+
+    def _migrate_registered(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'registered'"
+        ).fetchone()
+        if row is None:
+            return
+        sql = " ".join((row["sql"] or "").split())
+        if "PRIMARY KEY (nick, site_key)" in sql:
+            return
+        conn.execute("ALTER TABLE registered RENAME TO registered_old")
+        conn.execute(
+            """
+            CREATE TABLE registered (
+                nick TEXT NOT NULL,
+                display_nick TEXT NOT NULL,
+                site_key TEXT NOT NULL,
+                site TEXT NOT NULL,
+                position TEXT NOT NULL,
+                registered_by TEXT NOT NULL,
+                registered_at TEXT NOT NULL,
+                PRIMARY KEY (nick, site_key)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO registered
+                (nick, display_nick, site_key, site, position, registered_by, registered_at)
+            SELECT nick, display_nick, site_key, site, position, registered_by, registered_at
+            FROM registered_old
+            """
+        )
+        conn.execute("DROP TABLE registered_old")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10)
@@ -99,16 +135,16 @@ class Registry:
         stamp = _now()
         with self._db() as conn:
             existing = conn.execute(
-                "SELECT nick FROM registered WHERE nick = ?", (nick_key,)
+                "SELECT nick FROM registered WHERE nick = ? AND site_key = ?",
+                (nick_key, site_key),
             ).fetchone()
             conn.execute(
                 """
                 INSERT INTO registered
                     (nick, display_nick, site_key, site, position, registered_by, registered_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(nick) DO UPDATE SET
+                ON CONFLICT(nick, site_key) DO UPDATE SET
                     display_nick = excluded.display_nick,
-                    site_key = excluded.site_key,
                     site = excluded.site,
                     position = excluded.position,
                     registered_by = excluded.registered_by,
@@ -121,16 +157,27 @@ class Registry:
     def is_registered(self, nick: str) -> bool:
         return self.get_registered(nick) is not None
 
-    def get_registered(self, nick: str) -> dict | None:
+    def get_registered(self, nick: str, site: str | None = None) -> dict | None:
+        rows = self.registrations_for(nick)
+        if site and site.strip():
+            site_key = " ".join(site.split()).casefold()
+            for row in rows:
+                if row.get("site_key") == site_key:
+                    return row
+            return None
+        return rows[0] if rows else None
+
+    def registrations_for(self, nick: str) -> list[dict]:
         try:
             nick_key, _display = self._nick(nick)
         except RegistryError:
-            return None
+            return []
         with self._db() as conn:
-            row = conn.execute(
-                "SELECT * FROM registered WHERE nick = ?", (nick_key,)
-            ).fetchone()
-        return dict(row) if row else None
+            rows = conn.execute(
+                "SELECT * FROM registered WHERE nick = ? ORDER BY site_key",
+                (nick_key,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def list_registered(self, site: str | None = None) -> list[dict]:
         sql = "SELECT * FROM registered"
@@ -143,13 +190,20 @@ class Registry:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
-    def unregister(self, nick: str) -> bool:
+    def unregister(self, nick: str, site: str | None = None) -> bool:
         try:
             nick_key, _display = self._nick(nick)
         except RegistryError:
             return False
         with self._db() as conn:
-            cur = conn.execute("DELETE FROM registered WHERE nick = ?", (nick_key,))
+            if site and site.strip():
+                site_key = " ".join(site.split()).casefold()
+                cur = conn.execute(
+                    "DELETE FROM registered WHERE nick = ? AND site_key = ?",
+                    (nick_key, site_key),
+                )
+            else:
+                cur = conn.execute("DELETE FROM registered WHERE nick = ?", (nick_key,))
             return cur.rowcount > 0
 
     def ban(self, nick: str, site: str, reason: str, by: str) -> str:

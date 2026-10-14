@@ -45,6 +45,47 @@ def test_registry_register_ban_and_news(tmp_path):
         registry.register("has space", "Site", "Role", by="ada")
 
 
+def test_admin_updates_a_position_and_old_rows_keep_multiple_sites(tmp_path):
+    import sqlite3
+
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".update Carol MidnightScene Editor", "Alice"))
+    conn.sent.clear()
+    handler.handle(channel_event(".update Carol MidnightScene Senior Editor", "Alice"))
+    assert registry.get_registered("carol", "MidnightScene")["position"] == "Senior Editor"
+    assert "Updated Carol" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".update Carol OtherSite Uploader", "Alice"))
+    assert len(registry.registrations_for("carol")) == 2
+    handler.handle(channel_event(".unregister Carol OtherSite", "Alice"))
+    assert registry.get_registered("carol", "OtherSite") is None
+    assert registry.is_registered("carol")
+
+    legacy = tmp_path / "legacy.db"
+    db = sqlite3.connect(legacy)
+    db.execute(
+        """
+        CREATE TABLE registered (
+            nick TEXT PRIMARY KEY,
+            display_nick TEXT NOT NULL,
+            site_key TEXT NOT NULL,
+            site TEXT NOT NULL,
+            position TEXT NOT NULL,
+            registered_by TEXT NOT NULL,
+            registered_at TEXT NOT NULL
+        )
+        """
+    )
+    db.execute(
+        "INSERT INTO registered VALUES ('ada', 'Ada', 'mns', 'MNS', 'Editor', 'ada', '2026-01-01 00:00 UTC')"
+    )
+    db.commit()
+    db.close()
+    migrated = Registry(legacy)
+    assert migrated.register("Ada", "Other", "Mod", by="ada") == "created"
+    assert {row["site"] for row in migrated.registrations_for("ada")} == {"MNS", "Other"}
+
+
 def test_stranger_must_register_before_member_commands(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     handler.handle(channel_event(".news", "Carol"))
@@ -56,25 +97,29 @@ def test_stranger_must_register_before_member_commands(tmp_path):
 
 def test_anyone_can_register_own_nick_not_someone_else(tmp_path):
     handler, conn, registry = make_handler(tmp_path)
-    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    handler.handle(channel_event(".register MidnightScene Editor", "Carol"))
     assert registry.is_registered("carol")
+    assert registry.get_registered("carol")["position"] == "Editor"
     assert "Registered Carol" in visible(conn)
     conn.sent.clear()
-    handler.handle(channel_event(".register Alice MidnightScene Editor", "Carol"))
-    assert "own nick" in visible(conn)
+    handler.handle(channel_event(".register OtherSite Moderator", "Carol"))
+    assert {row["site"] for row in registry.registrations_for("carol")} == {"MidnightScene", "OtherSite"}
+    conn.sent.clear()
+    handler.handle(channel_event(".update Alice MidnightScene Editor", "Carol"))
+    assert "bot admins and above" in visible(conn)
     assert registry.get_registered("alice") is None
 
 
 def test_admin_can_register_someone_else(tmp_path):
     handler, conn, registry = make_handler(tmp_path)
-    handler.handle(channel_event(".register Carol OtherSite Uploader", "Alice"))
+    handler.handle(channel_event(".update Carol OtherSite Uploader", "Alice"))
     assert registry.get_registered("carol")["site"] == "OtherSite"
     assert "Registered Carol" in visible(conn)
 
 
 def test_registered_user_can_add_news_and_bans_but_not_the_roster(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
-    handler.handle(channel_event(".register Dave MidnightScene Moderator", "Dave"))
+    handler.handle(channel_event(".register MidnightScene Moderator", "Dave"))
     conn.sent.clear()
     handler.handle(channel_event(".addnews https://example.com/a insider note", "Dave"))
     assert "Added #1 (article)" in visible(conn)
@@ -118,7 +163,7 @@ def test_bot_user_can_use_member_commands_without_registering(tmp_path):
 
 def test_registered_list_is_pm_from_a_channel(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
-    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    handler.handle(channel_event(".register MidnightScene Editor", "Carol"))
     conn.sent.clear()
     handler.handle(channel_event(".registered", "Alice", "#staff"))
     targets = {target for target, _message in conn.sent}
@@ -133,7 +178,7 @@ def test_registered_list_is_pm_from_a_channel(tmp_path):
 
 def test_registered_list_in_pm_stays_in_pm(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
-    handler.handle(pm_event(".register Carol MidnightScene Editor", "Alice"))
+    handler.handle(pm_event(".update Carol MidnightScene Editor", "Alice"))
     conn.sent.clear()
     handler.handle(pm_event(".registered", "Alice"))
     assert {target for target, _message in conn.sent} == {"Alice"}
@@ -176,6 +221,7 @@ def test_help_groups_member_commands_and_hides_admin(tmp_path):
     assert admin.index(".join") < admin.index(".part")
     assert ".reconnect" in admin
     assert ".exit" in admin
+    assert ".update" in admin
     conn.sent.clear()
     handler.handle(pm_event(".help admin", "Carol"))
     assert "bot admins and above" in visible(conn)
@@ -183,7 +229,7 @@ def test_help_groups_member_commands_and_hides_admin(tmp_path):
 
 def test_ban_without_a_site_uses_the_registered_site(tmp_path):
     handler, conn, registry = make_handler(tmp_path)
-    handler.handle(channel_event(".register Eve MidnightScene Editor", "Alice"))
+    handler.handle(channel_event(".update Eve MidnightScene Editor", "Alice"))
     conn.sent.clear()
     handler.handle(channel_event(".ban Eve leaked a screen", "Bob"))
     assert "on MidnightScene" in visible(conn)
@@ -197,6 +243,9 @@ def test_ban_without_a_site_uses_the_registered_site(tmp_path):
     conn.sent.clear()
     handler.handle(channel_event(".ban Stranger nowhere", "Bob"))
     assert "not registered" in visible(conn)
+
+
+def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     event = pm_event(".help", "Carol")
     event["incoming_target"] = "OtherNick"
@@ -216,7 +265,7 @@ def test_admin_maintenance_and_owner_exit(tmp_path):
 
     app = App()
     handler.application = app
-    handler.handle(channel_event(".register Carol MidnightScene Editor", "Carol"))
+    handler.handle(channel_event(".register MidnightScene Editor", "Carol"))
     handler.handle(channel_event(".banuser Eve MidnightScene reason", "Carol"))
     handler.handle(channel_event(".addnews https://example.com/z", "Carol"))
     conn.sent.clear()

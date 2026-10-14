@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 PUBLIC_COMMANDS = frozenset({"help", "register"})
 MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "ban", "banuser", "unregister"})
-ADMIN_COMMANDS = frozenset({"registered", "unban", "delnews", "join", "part"})
+ADMIN_COMMANDS = frozenset({"registered", "update", "unban", "delnews", "join", "part"})
 OWNER_COMMANDS = frozenset({"reconnect", "exit"})
 
 
@@ -159,12 +159,12 @@ class CommandHandler:
         lines = [
             "InsiderBot",
             f"{prefix}help — this list",
-            f"{prefix}register <nick> <site> <position> — register a nick, site, and position",
+            f"{prefix}register <site> <position> — add or update your position on a site",
         ]
         if self._is_member(nick):
             lines.extend(
                 [
-                    f"{prefix}unregister <nick> — remove your registration",
+                    f"{prefix}unregister [site] — drop one of your sites, or all of them",
                     f"{prefix}news [count] — recent articles and reddit posts",
                     f"{prefix}addnews <url> [note] — add a news URL",
                     f"{prefix}banned [site] — users banned from sites",
@@ -187,6 +187,7 @@ class CommandHandler:
         lines = [
             "Admin",
             f"{prefix}registered [site] — registered nicks (PM from a channel)",
+            f"{prefix}update <nick> <site> <position> — set a nick's site and position",
             f"{prefix}unban <user> [site] — remove a ban",
             f"{prefix}delnews <id> — remove a news item",
             f"{prefix}join <#channel>",
@@ -199,37 +200,70 @@ class CommandHandler:
 
     def cmd_register(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            self._reply(event, f"Usage: {prefix}register <site> <position>")
+            return False
+        site, position = parts[0], parts[1].strip()
+        try:
+            status = self.registry.register(nick, site, position, by=nick)
+        except RegistryError as exc:
+            self._reply(event, str(exc))
+            return False
+        verb = "Updated" if status == "updated" else "Registered"
+        self._reply(event, f"{verb} {nick} on {site} as {position}.")
+        return True
+
+    def cmd_update(self, nick: str, event: dict, args: str) -> bool:
+        prefix = self._prefix()
         parts = args.split(maxsplit=2)
-        if len(parts) < 3:
-            self._reply(event, f"Usage: {prefix}register <nick> <site> <position>")
+        if len(parts) < 3 or not parts[2].strip():
+            self._reply(event, f"Usage: {prefix}update <nick> <site> <position>")
             return False
-        target, site, position = parts
-        if target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
-            self._reply(event, "You can register your own nick. Bot admins can register someone else.")
-            return False
+        target, site, position = parts[0], parts[1], parts[2].strip()
         try:
             status = self.registry.register(target, site, position, by=nick)
         except RegistryError as exc:
             self._reply(event, str(exc))
             return False
         verb = "Updated" if status == "updated" else "Registered"
-        self._reply(event, f"{verb} {target.strip()} on {site.strip()} as {position.strip()}.")
+        self._reply(event, f"{verb} {target} on {site} as {position}.")
         return True
 
     def cmd_unregister(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
-        target = args.split(maxsplit=1)[0] if args else ""
-        if not target:
-            self._reply(event, f"Usage: {prefix}unregister <nick>")
+        text = args.strip()
+        if not text:
+            if not self.registry.unregister(nick):
+                self._reply(event, f"{nick} is not registered.")
+                return False
+            self._reply(event, f"Unregistered {nick}.")
+            return True
+        target, _, site = text.partition(" ")
+        site = site.strip()
+        if site:
+            if target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
+                self._reply(event, "You can unregister your own sites. Bot admins can unregister someone else.")
+                return False
+        elif self._owns_site(nick, target):
+            site = target
+            target = nick
+        elif target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
+            self._reply(event, "You can unregister your own sites. Bot admins can unregister someone else.")
             return False
-        if target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
-            self._reply(event, "You can unregister your own nick. Bot admins can unregister someone else.")
+        if not self.registry.unregister(target, site or None):
+            where = f" on {site}" if site else ""
+            self._reply(event, f"{target} is not registered{where}.")
             return False
-        if not self.registry.unregister(target):
-            self._reply(event, f"{target} is not registered.")
-            return False
-        self._reply(event, f"Unregistered {target}.")
+        if site:
+            self._reply(event, f"Unregistered {target} on {site}.")
+        else:
+            self._reply(event, f"Unregistered {target}.")
         return True
+
+    def _owns_site(self, nick: str, site: str) -> bool:
+        key = " ".join(site.split()).casefold()
+        return any(row.get("site_key") == key for row in self.registry.registrations_for(nick))
 
     def cmd_news(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
@@ -283,14 +317,20 @@ class CommandHandler:
             self._reply(event, f"Usage: {prefix}ban <user> [site] <reason>")
             return False
         user, rest = parts[0], parts[1].strip()
-        registered = self.registry.get_registered(user)
+        rows = self.registry.registrations_for(user)
+        by_site = {str(row.get("site_key") or ""): row.get("site") for row in rows}
         head, _, tail = rest.partition(" ")
-        if registered and head.casefold() == str(registered.get("site") or "").casefold() and tail.strip():
-            site = registered["site"]
+        head_key = " ".join(head.split()).casefold()
+        if head_key in by_site and tail.strip():
+            site = by_site[head_key]
             reason = tail.strip()
-        elif registered:
-            site = registered["site"]
+        elif len(rows) == 1:
+            site = rows[0]["site"]
             reason = rest
+        elif len(rows) > 1:
+            names = ", ".join(row["site"] for row in rows)
+            self._reply(event, f"{user.strip()} is on {names}. Usage: {prefix}ban <user> <site> <reason>")
+            return False
         elif tail.strip():
             site = head
             reason = tail.strip()
