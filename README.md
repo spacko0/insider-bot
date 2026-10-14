@@ -27,6 +27,16 @@ Set at least `IRC_SERVER`, `IRC_NICKNAME`, and `BOT_OWNER`.
 
 The console prompt accepts the same commands. That session counts as the bot owner.
 
+## tmux
+
+On the server, from the repo root after `.env` is filled in:
+
+```bash
+./deploy/start-insiderbot-tmux.sh
+```
+
+That starts a detached session named `insider-bot`, separate from mod-bot. Attach with `tmux attach -t insider-bot`. Detach with `Ctrl-b` then `d`. Stop with `tmux kill-session -t insider-bot`.
+
 ## Two kinds of people
 
 **Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`). Higher tiers include the lower ones. Owner commands require the owner tier exactly, same as mod-bot.
