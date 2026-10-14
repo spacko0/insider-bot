@@ -176,7 +176,7 @@ class CommandHandler:
         if self.config.is_admin_or_above(nick):
             lines.append(f"{prefix}help admin — admin commands")
         if not self._is_member(nick):
-            lines.append("News, bans, and the registered list unlock after you register, or if your nick is a bot user.")
+            lines.append("News and bans unlock after you register, or if your nick is a bot user.")
         self._reply(event, lines)
         return True
 
@@ -187,15 +187,13 @@ class CommandHandler:
         prefix = self._prefix()
         lines = [
             "Admin",
-            f"{prefix}registered [site] — registered nicks (PM from a channel)",
+            f"{prefix}registered [site] — registered users and sites (PM from a channel)",
             f"{prefix}update <nick> <site> <position> — set a nick's site and position",
             f"{prefix}unban <user> [site] — remove a ban",
             f"{prefix}delnews <id> — remove a news item",
             f"{prefix}join <#channel>",
             f"{prefix}part <#channel>",
         ]
-        if self.config.is_owner(nick):
-            lines.extend([f"{prefix}reconnect", f"{prefix}exit"])
         self._reply(event, lines)
         return True
 

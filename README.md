@@ -63,7 +63,7 @@ Member commands (news and bans) work for a registered nick or any bot user.
 | `.join <#channel>` / `.part <#channel>` | Bot admins and above |
 | `.reconnect` / `.exit` | Bot owner |
 
-`.registered` is grouped by site, with nick and position on each line. `.banned` is grouped by site, with the reason and who added it.
+`.registered` and `.banned` are tables. Registered columns are date, site, user, and position. Banned columns are date, site, user, and reason.
 
 Public commands are accepted in `IRC_COMMAND_CHANNELS` (or `IRC_CHANNELS` when that list is empty) and in a private message to the bot. A `:tier` suffix on a command channel still blocks admin and owner commands from nicks below that tier. News, bans, `.register`, and `.help` stay available to the people listed above even in a rank-gated channel.
 

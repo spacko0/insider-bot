@@ -17,15 +17,18 @@ def format_registered(rows: list[dict], *, colors: bool) -> list[str]:
     if not rows:
         return ["No registered users."]
     lines = [irc_mirc_color(f"Registered ({len(rows)})", "07", colors)]
-    current = None
+    lines.append(
+        irc_monospace(
+            f"{irc_pad_visible('Date', 10)} | {irc_pad_visible('Site', 16)} | "
+            f"{irc_pad_visible('User', _NICK_WIDTH)} | Position"
+        )
+    )
     for row in rows:
-        site = row.get("site") or "?"
-        if site != current:
-            current = site
-            lines.append(irc_mirc_color(site, "03", colors))
+        date = _ban_date(row.get("registered_at"))
+        site = irc_pad_visible(_clip(row.get("site") or "?", 16), 16)
         nick = irc_pad_visible(_clip(row.get("display_nick") or "?", _NICK_WIDTH), _NICK_WIDTH)
         position = _clip(row.get("position") or "", 80)
-        lines.append(irc_monospace(f"{nick} | {position}"))
+        lines.append(irc_monospace(f"{date} | {site} | {nick} | {position}"))
     return lines
 
 

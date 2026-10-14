@@ -220,6 +220,7 @@ def test_registered_list_is_pm_from_a_channel(tmp_path):
     assert "Alice" in targets
     assert "#staff" in targets
     private = visible_for(conn, "Alice")
+    assert "Date" in private and "Position" in private
     assert "Carol" in private
     assert "Editor" in private
     assert "MidnightScene" in private
@@ -269,8 +270,8 @@ def test_help_groups_member_commands_and_hides_admin(tmp_path):
     assert admin.index(".registered") < admin.index(".unban")
     assert ".delnews" in admin
     assert admin.index(".join") < admin.index(".part")
-    assert ".reconnect" in admin
-    assert ".exit" in admin
+    assert ".reconnect" not in admin
+    assert ".exit" not in admin
     assert ".update" in admin
     conn.sent.clear()
     handler.handle(pm_event(".help admin", "Carol"))
