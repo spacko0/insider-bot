@@ -296,6 +296,9 @@ class CommandHandler:
         if status == "duplicate":
             self._reply(event, f"Already listed as #{row['id']} ({row['kind']}).")
             return False
+        if status == "refreshed":
+            self._reply(event, f"Updated #{row['id']}: {row['note']}")
+            return True
         label = "reddit post" if kind == "reddit" else "article"
         if title:
             self._reply(event, f"Added #{row['id']} ({label}): {title}")

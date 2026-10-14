@@ -50,6 +50,21 @@ def test_page_heading_parsers():
     assert title_from_html('<meta property="og:title" content="Post title"><title>Other</title>') == "Post title"
     payload = [{"data": {"children": [{"data": {"title": "Tracker thread"}}]}}]
     assert title_from_reddit_json(payload) == "Tracker thread"
+    assert title_from_reddit_json({"title": "Oldtoons database and website leak"}) == "Oldtoons database and website leak"
+    assert title_from_html("<html><title>reddit</title></html>") is None
+    assert title_from_html("<html><title>Welcome to Reddit</title></html>") is None
+
+
+def test_placeholder_reddit_title_is_replaced(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "commands.handler.fetch_page_title",
+        lambda url: "Oldtoons database and website leak",
+    )
+    handler, _conn, registry = make_handler(tmp_path)
+    url = "https://www.reddit.com/r/trackers/comments/1x1v652/comment/pexnesy/"
+    registry.add_news(url, "reddit", "reddit", by="carol")
+    handler.handle(channel_event(f".addnews {url}", "OwnerNick"))
+    assert registry.list_news(5)[0]["note"] == "Oldtoons database and website leak"
 
 
 def test_registry_register_ban_and_news(tmp_path):

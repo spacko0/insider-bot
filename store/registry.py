@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from commands.titles import is_placeholder_title
+
 
 class RegistryError(ValueError):
     """A list change was rejected. The message is safe to show on IRC."""
@@ -277,7 +279,12 @@ class Registry:
                 "SELECT * FROM news WHERE url = ?", (clean_url,)
             ).fetchone()
             if existing:
-                return "duplicate", dict(existing)
+                row = dict(existing)
+                if note_text and is_placeholder_title(row.get("note")) and not is_placeholder_title(note_text):
+                    conn.execute("UPDATE news SET note = ? WHERE id = ?", (note_text, row["id"]))
+                    row["note"] = note_text
+                    return "refreshed", row
+                return "duplicate", row
             conn.execute(
                 """
                 INSERT INTO news (url, kind, note, added_by, added_at)
