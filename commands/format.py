@@ -38,30 +38,58 @@ def format_registered(rows: list[dict], *, colors: bool) -> list[str]:
 
 
 def format_banned(rows: list[dict], *, colors: bool) -> list[str]:
-    if not rows:
+    grouped = _group_bans(rows)
+    if not grouped:
         return ["No banned users."]
-    lines = [irc_mirc_color(f"Banned ({len(rows)})", "04", colors)]
-    lines.extend(
-        _table(
-            ("Date", "Site", "User", "Reason"),
-            [
-                [
-                    _ban_date(row.get("added_at")),
-                    row.get("site") or "?",
-                    row.get("display_nick") or "?",
-                    row.get("reason") or "",
-                ]
-                for row in rows
-            ],
-        )
-    )
+    lines = [irc_mirc_color(f"Banned ({len(grouped)})", "04", colors)]
+    lines.extend(_table(("Date", "Site", "User", "Reason"), grouped, limits=(10, 48, 16, 80)))
     return lines
 
 
-def _table(headers: tuple[str, ...], rows: list[list[str]]) -> list[str]:
-    widths = (_DATE_WIDTH, _SITE_WIDTH, _NICK_WIDTH, _LAST_WIDTH)
-    lines = [_table_row(list(headers), widths)]
-    lines.extend(_table_row(cells, widths) for cells in rows)
+def _group_bans(rows: list[dict]) -> list[list[str]]:
+    """One row per nick. Sites and reasons stay in the same order."""
+    order: list[str] = []
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        nick = (row.get("nick") or row.get("display_nick") or "?").casefold()
+        if nick not in grouped:
+            grouped[nick] = []
+            order.append(nick)
+        grouped[nick].append(row)
+    table: list[list[str]] = []
+    for nick in order:
+        items = sorted(grouped[nick], key=lambda item: (item.get("added_at") or "", item.get("site") or ""))
+        main = _ban_date(items[0].get("added_at"))
+        sites: list[str] = []
+        reasons: list[str] = []
+        for item in items:
+            site = item.get("site") or "?"
+            when = _ban_date(item.get("added_at"))
+            if when != main and len(when) >= 10:
+                site = f"{site} ({when[5:10]})"
+            sites.append(site)
+            reasons.append(item.get("reason") or "")
+        display = items[0].get("display_nick") or nick
+        table.append([main, ", ".join(sites), display, ", ".join(reasons)])
+    return table
+
+
+def _table(
+    headers: tuple[str, ...],
+    rows: list[list[str]],
+    limits: tuple[int, ...] = (10, 16, 16, 24),
+) -> list[str]:
+    minimums = (_DATE_WIDTH, _SITE_WIDTH, _NICK_WIDTH, _LAST_WIDTH)
+    widths = []
+    for index, minimum in enumerate(minimums):
+        longest = len(headers[index])
+        limit = limits[index]
+        for cells in rows:
+            longest = max(longest, len(_clip(cells[index], limit)))
+        widths.append(min(limit, max(minimum, longest)))
+    width_tuple = tuple(widths)
+    lines = [_table_row(list(headers), width_tuple)]
+    lines.extend(_table_row(cells, width_tuple) for cells in rows)
     return lines
 
 

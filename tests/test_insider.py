@@ -2,10 +2,69 @@ from pathlib import Path
 
 import pytest
 
+from commands.format import format_banned
 from commands.urls import classify_url
 from store.registry import Registry, RegistryError
 from tests.support import base_env, channel_event, make_handler, pm_event, visible
 from utils.config import Config
+
+
+def _plain(lines: list[str]) -> str:
+    return "\n".join(line.replace("\u00a0", " ").replace("\x11", "") for line in lines)
+
+
+def test_same_nick_bans_share_one_row():
+    same_day = _plain(
+        format_banned(
+            [
+                {
+                    "nick": "nzbs",
+                    "display_nick": "nzbs",
+                    "site": "HHD",
+                    "reason": "Disrespectful",
+                    "added_at": "2026-10-14 08:26 UTC",
+                },
+                {
+                    "nick": "nzbs",
+                    "display_nick": "nzbs",
+                    "site": "MNS",
+                    "reason": "Invite Trading",
+                    "added_at": "2026-10-14 08:19 UTC",
+                },
+            ],
+            colors=False,
+        )
+    )
+    assert "Banned (1)" in same_day
+    assert "MNS, HHD" in same_day
+    assert "Invite Trading, Disrespectful" in same_day
+    assert same_day.count("nzbs") == 1
+    other_day = _plain(
+        format_banned(
+            [
+                {
+                    "nick": "nzbs",
+                    "display_nick": "nzbs",
+                    "site": "HHD",
+                    "reason": "Disrespectful",
+                    "added_at": "2026-10-15 08:26 UTC",
+                },
+                {
+                    "nick": "nzbs",
+                    "display_nick": "nzbs",
+                    "site": "MNS",
+                    "reason": "Invite Trading",
+                    "added_at": "2026-10-14 08:19 UTC",
+                },
+            ],
+            colors=False,
+        )
+    )
+    assert "2026-10-14" in other_day
+    assert "MNS, HHD (10-15)" in other_day
+    assert "Invite Trading, Disrespectful" in other_day
+    header, data = [line for line in other_day.splitlines() if "|" in line]
+    assert len(header) == len(data)
 
 
 def test_classify_reddit_and_articles():
