@@ -139,25 +139,37 @@ class Config:
         self.warnings: list[str] = []
 
     def _apply_connection_fallbacks(self) -> None:
-        """ZNC account fields can supply a nick. The bouncer address stays IRC_SERVER."""
+        """With ZNC on, a blank IRC_SERVER means the bouncer is on this machine."""
         if not self.IRC_SERVER:
             for key in ("ZNC_SERVER", "ZNC_HOST"):
                 host = self._get(key).strip()
                 if host:
-                    self.IRC_SERVER = host
-                    logger.warning("IRC_SERVER is not set; using %s", key)
+                    self._take_host(host)
+                    logger.info("Using bouncer address from %s", key)
                     break
+        if not self.IRC_SERVER and self.IRC_USE_ZNC:
+            self.IRC_SERVER = "127.0.0.1"
+            logger.info("IRC_USE_ZNC is on and IRC_SERVER is empty; using 127.0.0.1")
         if self.IRC_NICKNAME:
             return
         if self.ZNC_IRC_NICK and "/" not in self.ZNC_IRC_NICK:
             self.IRC_NICKNAME = self.ZNC_IRC_NICK
-            logger.warning("IRC_NICKNAME is not set; using ZNC_IRC_NICK")
+            logger.info("IRC_NICKNAME is empty; using ZNC_IRC_NICK")
             return
         account = self.ZNC_USER or self.ZNC_USERNAME.split("/", 1)[0]
         account = account.strip()
         if account and "/" not in account:
             self.IRC_NICKNAME = account
-            logger.warning("IRC_NICKNAME is not set; using ZNC account name %s", account)
+            logger.info("IRC_NICKNAME is empty; using ZNC account name %s", account)
+
+    def _take_host(self, host: str) -> None:
+        if ":" in host and host.count(":") == 1:
+            name, _, port = host.partition(":")
+            self.IRC_SERVER = name.strip()
+            if port.strip().isdigit():
+                self.IRC_PORT = int(port.strip())
+            return
+        self.IRC_SERVER = host
 
     def _load_auth_sets(self) -> None:
         owner_users = [u.lower() for u in self._csv("OWNER_USERS")]
@@ -358,9 +370,7 @@ class Config:
             self.COMMAND_PREFIX = "."
             self._warn_config("COMMAND_PREFIX is invalid. Using '.'")
         if not self.IRC_SERVER:
-            self._warn_config(
-                "IRC_SERVER is not set. ZNC username and password do not include the bouncer address."
-            )
+            self._warn_config("IRC_SERVER is not set.")
         if not self.IRC_NICKNAME:
             self._warn_config("IRC_NICKNAME is not set.")
         if not self.BOT_OWNER_USERS:

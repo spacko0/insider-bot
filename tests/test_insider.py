@@ -237,7 +237,7 @@ def test_znc_and_sasl_warns_and_keeps_znc(tmp_path):
     assert any("SASL is ignored" in message for message in config.warnings)
 
 
-def test_missing_irc_settings_warn_instead_of_exiting(tmp_path):
+def test_znc_without_irc_server_uses_local_bouncer(tmp_path):
     config = Config(
         base_env(
             tmp_path / "x.db",
@@ -246,12 +246,11 @@ def test_missing_irc_settings_warn_instead_of_exiting(tmp_path):
             IRC_USE_ZNC="true",
             ZNC_USERNAME="InsiderBot/Example",
             ZNC_PASSWORD="secret",
-            ZNC_SERVER="znc.example.org",
         )
     )
-    assert config.IRC_SERVER == "znc.example.org"
+    assert config.IRC_SERVER == "127.0.0.1"
     assert config.IRC_NICKNAME == "InsiderBot"
-    assert not any(message.startswith("IRC_NICKNAME is not set") for message in config.warnings)
+    assert not any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
 
 
 def test_missing_server_and_owner_are_warnings(tmp_path):
