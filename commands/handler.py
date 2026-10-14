@@ -43,6 +43,13 @@ class CommandHandler:
             if nick.lower() == (self.connection.nickname or "").lower() and nick.lower() != "terminal":
                 return False
             if not self._delivery_ok(event, command):
+                logger.info(
+                    "Ignored %s%s from %s to %s",
+                    prefix,
+                    command,
+                    nick,
+                    event.get("incoming_target") or event.get("target") or "",
+                )
                 return False
             logger.info("Command %s%s from %s", prefix, command, nick)
 
@@ -93,8 +100,10 @@ class CommandHandler:
         incoming = event.get("incoming_type")
         raw_target = event.get("incoming_target") or ""
         if incoming == "privmsg":
-            bot = (self.connection.nickname or self.config.IRC_NICKNAME or "").casefold()
-            return raw_target.strip().casefold() == bot
+            target = raw_target.strip()
+            if target.startswith(("#", "&")):
+                return False
+            return True
         if incoming == "pubmsg":
             channel = self.config.normalize_irc_channel(raw_target)
             if channel not in self.config.effective_command_channels:

@@ -462,6 +462,9 @@ class IRCConnection(SimpleIRCClient):
         self.reconnect_attempts = 0
         self.last_reconnect_attempt_time = None
         self.connection_established.set()
+        real_nick = (getattr(connection, "real_nickname", None) or "").strip()
+        if real_nick:
+            self.nickname = real_nick
         logger.info(
             "IRC connection established (nick=%s, channels=%s)",
             self.nickname,

@@ -143,12 +143,12 @@ def test_commands_outside_command_channels_are_ignored(tmp_path):
     assert not registry.is_registered("carol")
 
 
-def test_pm_to_someone_else_is_ignored(tmp_path):
+def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     event = pm_event(".help", "Carol")
-    event["incoming_target"] = "SomeOtherNick"
+    event["incoming_target"] = "ModBot"
     handler.handle(event)
-    assert conn.sent == []
+    assert "InsiderBot" in visible(conn)
 
 
 def test_admin_maintenance_and_owner_exit(tmp_path):
