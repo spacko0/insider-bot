@@ -17,6 +17,41 @@ def test_classify_reddit_and_articles():
     assert classify_url("not a url") is None
 
 
+def test_addnews_title_before_the_url_is_stored(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register MidnightScene Editor", "Carol"))
+    conn.sent.clear()
+    handler.handle(
+        channel_event(
+            ".addnews OTW Leak https://www.reddit.com/r/trackers/comments/1x1v652/comment/pexnesy/",
+            "Carol",
+        )
+    )
+    assert "OTW Leak" in visible(conn)
+    row = registry.list_news(5)[0]
+    assert row["note"] == "OTW Leak"
+    assert row["kind"] == "reddit"
+
+
+def test_addnews_without_a_title_uses_the_page_heading(tmp_path, monkeypatch):
+    monkeypatch.setattr("commands.handler.fetch_page_title", lambda url: "OTW Leak")
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register MidnightScene Editor", "Carol"))
+    conn.sent.clear()
+    handler.handle(channel_event(".addnews https://example.com/story", "Carol"))
+    assert "OTW Leak" in visible(conn)
+    assert registry.list_news(5)[0]["note"] == "OTW Leak"
+
+
+def test_page_heading_parsers():
+    from commands.titles import title_from_html, title_from_reddit_json
+
+    assert title_from_html("<html><title>Hello &amp; Co</title></html>") == "Hello & Co"
+    assert title_from_html('<meta property="og:title" content="Post title"><title>Other</title>') == "Post title"
+    payload = [{"data": {"children": [{"data": {"title": "Tracker thread"}}]}}]
+    assert title_from_reddit_json(payload) == "Tracker thread"
+
+
 def test_registry_register_ban_and_news(tmp_path):
     registry = Registry(tmp_path / "t.db")
     assert registry.register("Ada", "MidnightScene", "Editor", by="ada") == "created"

@@ -7,7 +7,8 @@ import threading
 import time
 
 from commands.format import format_banned, format_news, format_registered
-from commands.urls import classify_url
+from commands.urls import classify_url, split_news_args
+from commands.titles import fetch_page_title
 from store.registry import RegistryError
 from utils.irc_burst import send_via_connection
 from utils.irc_format import is_znc_playback
@@ -166,7 +167,7 @@ class CommandHandler:
                 [
                     f"{prefix}unregister [site] — drop one of your sites, or all of them",
                     f"{prefix}news [count] — recent articles and reddit posts",
-                    f"{prefix}addnews <url> [note] — add a news URL",
+                    f"{prefix}addnews [title] <url> — add a news URL. The page heading is used when the title is left out",
                     f"{prefix}banned [site] — users banned from sites",
                     f"{prefix}ban <user> [site] <reason> — record a site ban",
                     f"{prefix}banuser <user> [site] <reason> — same as {prefix}ban",
@@ -279,16 +280,16 @@ class CommandHandler:
 
     def cmd_addnews(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
-        if not args:
-            self._reply(event, f"Usage: {prefix}addnews <url> [note]")
+        parsed = split_news_args(args)
+        if parsed is None:
+            self._reply(event, f"Usage: {prefix}addnews [title] <url>")
             return False
-        url, _, note = args.partition(" ")
+        url, title = parsed
         kind = classify_url(url)
-        if kind is None:
-            self._reply(event, "Give an http(s) URL. Reddit links are stored as reddit posts.")
-            return False
+        if not title:
+            title = fetch_page_title(url) or ""
         try:
-            status, row = self.registry.add_news(url.strip(), kind, note.strip(), by=nick)
+            status, row = self.registry.add_news(url.strip(), kind, title, by=nick)
         except RegistryError as exc:
             self._reply(event, str(exc))
             return False
@@ -296,7 +297,10 @@ class CommandHandler:
             self._reply(event, f"Already listed as #{row['id']} ({row['kind']}).")
             return False
         label = "reddit post" if kind == "reddit" else "article"
-        self._reply(event, f"Added #{row['id']} ({label}).")
+        if title:
+            self._reply(event, f"Added #{row['id']} ({label}): {title}")
+        else:
+            self._reply(event, f"Added #{row['id']} ({label}).")
         return True
 
     def cmd_banned(self, nick: str, event: dict, args: str) -> bool:

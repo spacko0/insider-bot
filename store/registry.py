@@ -268,8 +268,8 @@ class Registry:
         if kind not in ("article", "reddit"):
             raise RegistryError("News kind must be article or reddit.")
         note_text = " ".join((note or "").split())
-        if len(note_text) > 140:
-            raise RegistryError("Note is too long (max 140 characters).")
+        if len(note_text) > 200:
+            raise RegistryError("Note is too long (max 200 characters).")
         actor = (by or "unknown").strip().lower() or "unknown"
         stamp = _now()
         with self._db() as conn:

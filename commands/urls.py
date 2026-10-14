@@ -26,3 +26,14 @@ def classify_url(raw: str) -> str | None:
     if host in _REDDIT_HOSTS or host.endswith(".reddit.com") or host.endswith(".redd.it"):
         return "reddit"
     return "article"
+
+
+def split_news_args(args: str) -> tuple[str, str] | None:
+    """Return ``(url, title)``. Title is text before the URL, or after it when the URL is first."""
+    tokens = (args or "").split()
+    index = next((i for i, token in enumerate(tokens) if classify_url(token)), None)
+    if index is None:
+        return None
+    before = " ".join(tokens[:index]).strip()
+    after = " ".join(tokens[index + 1 :]).strip()
+    return tokens[index], before or after
