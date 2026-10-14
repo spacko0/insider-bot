@@ -5,6 +5,15 @@ import re
 
 IRC_COLUMN_PAD = "\u00a0"
 
+_ZNC_PLAYBACK = re.compile(
+    r"^\[(?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}(?::\d{2})?\]\s*"
+)
+
+
+def is_znc_playback(text: str) -> bool:
+    """True for bouncer buffer lines such as ``[20:09:16] .banned``."""
+    return _ZNC_PLAYBACK.match((text or "").strip()) is not None
+
 
 def irc_strip_mirc(text: str) -> str:
     text = (text or "").replace("\x11", "").replace("\x0f", "")

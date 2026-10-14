@@ -16,6 +16,8 @@ from datetime import datetime
 from irc.client import Event, ServerConnection, SimpleIRCClient
 from irc.connection import Factory
 
+from utils.irc_format import is_znc_playback
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,6 +91,7 @@ class IRCConnection(SimpleIRCClient):
         self._reconnect_reset_timer = None
         self.last_disconnect_reason = ""
         self._send_skip_log_mono = 0.0
+        self._logged_playback_skip = False
 
     def is_irc_ready(self) -> bool:
         conn = getattr(self, "connection", None)
@@ -467,6 +470,8 @@ class IRCConnection(SimpleIRCClient):
 
     def on_welcome(self, connection, event):
         self.touch_irc_activity()
+        if self._welcome_received:
+            return
         self.irc_connected = True
         self._welcome_received = True
         self.reconnect_attempts = 0
@@ -482,12 +487,6 @@ class IRCConnection(SimpleIRCClient):
         )
         logger.info("Private messages must be sent to %s", self.nickname)
         self.start_irc_health_monitor()
-        if self.config.IRC_USE_ZNC and getattr(self.config, "IRC_ZNC_STATUS_CONNECT", True):
-            try:
-                connection.privmsg("*status", "connect")
-                logger.info("Asked the bouncer to connect its IRC network")
-            except Exception as exc:
-                logger.warning("Bouncer status connect failed: %s", exc)
         if self.config.AUTO_IDENTIFY and self.config.NICKSERV_PASSWORD and not self.config.IRC_USE_SASL:
             connection.privmsg("NickServ", f"IDENTIFY {self.config.NICKSERV_PASSWORD}")
             logger.info("Sent auto-identify to NickServ")
@@ -499,8 +498,20 @@ class IRCConnection(SimpleIRCClient):
     def _on_privmsg(self, connection, event):
         self.touch_irc_activity()
         text = event.arguments[0] if event.arguments else ""
+        target = str(event.target or "").strip()
         source = str(event.source or "unknown").split("!")[0]
-        logger.info("PM from %s to %s: %s", source, event.target, text)
+        if target and not target.startswith(("#", "&", "*")) and target.casefold() != (self.nickname or "").casefold():
+            logger.info("This session's IRC nick is %s", target)
+            self.nickname = target
+        if is_znc_playback(text):
+            if not self._logged_playback_skip:
+                self._logged_playback_skip = True
+                logger.info("Skipping old bouncer playback. Those lines are not commands.")
+            return
+        if source.startswith("*"):
+            logger.info("Bouncer message from %s: %s", source, text)
+            return
+        logger.info("PM from %s to %s: %s", source, target, text)
 
     def _on_nick(self, connection, event):
         self.touch_irc_activity()

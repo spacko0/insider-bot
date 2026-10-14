@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 
@@ -11,12 +10,9 @@ from commands.format import format_banned, format_news, format_registered
 from commands.urls import classify_url
 from store.registry import RegistryError
 from utils.irc_burst import send_via_connection
+from utils.irc_format import is_znc_playback
 
 logger = logging.getLogger(__name__)
-
-_PLAYBACK_PREFIX = re.compile(
-    r"^\[(?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}(?::\d{2})?\]\s*"
-)
 
 PUBLIC_COMMANDS = frozenset({"help", "register"})
 MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "banuser", "unregister"})
@@ -33,7 +29,9 @@ class CommandHandler:
 
     def handle(self, event) -> bool:
         try:
-            message = _PLAYBACK_PREFIX.sub("", (event.get("message") or "").strip())
+            message = (event.get("message") or "").strip()
+            if is_znc_playback(message):
+                return False
             source = (event.get("source") or "unknown").strip()
             prefix = self.config.COMMAND_PREFIX
             if not message.startswith(prefix):

@@ -143,10 +143,11 @@ def test_commands_outside_command_channels_are_ignored(tmp_path):
     assert not registry.is_registered("carol")
 
 
-def test_playback_timestamp_still_runs_the_command(tmp_path):
+def test_playback_timestamp_is_not_a_command(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     handler.handle(pm_event("[22:13:40] .help", "Carol"))
-    assert "InsiderBot" in visible(conn)
+    handler.handle(pm_event("[20:09:16] .banned", "OwnerNick"))
+    assert conn.sent == []
 
 
 def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):

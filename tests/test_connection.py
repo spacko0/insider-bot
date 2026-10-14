@@ -52,6 +52,21 @@ def test_send_message_when_ready():
     irc_conn.connection.privmsg.assert_called_once_with("#insiders", "hello")
 
 
+def test_welcome_does_not_tell_the_bouncer_to_reconnect():
+    irc_conn = _connection()
+    irc_conn.config.IRC_USE_ZNC = True
+    irc_conn.config.IRC_ZNC_STATUS_CONNECT = True
+    irc_conn.config.AUTO_IDENTIFY = False
+    irc_conn.config.NICKSERV_PASSWORD = ""
+    irc_conn.config.IRC_USE_SASL = False
+    irc_conn.connection.real_nickname = "InsiderBot"
+    event = MagicMock()
+    event.arguments = ["InsiderBot"]
+    irc_conn.on_welcome(irc_conn.connection, event)
+    irc_conn.on_welcome(irc_conn.connection, event)
+    irc_conn.connection.privmsg.assert_not_called()
+
+
 def test_on_disconnect_clears_welcome_and_does_not_reconnect_when_disabled():
     irc_conn = _connection()
     irc_conn._welcome_received = True
