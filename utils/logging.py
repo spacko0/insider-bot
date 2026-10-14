@@ -1,16 +1,13 @@
 import logging
-import os
 import sys
 from datetime import datetime
 
-from dotenv import load_dotenv
-
-from utils.config import REPO_ROOT
+from utils.config import REPO_ROOT, read_env_file
 
 
 def setup_logging():
-    load_dotenv(REPO_ROOT / ".env", override=True)
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    settings = read_env_file(REPO_ROOT / ".env")
+    log_level = str(settings.get("LOG_LEVEL", "INFO")).upper()
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             try:
@@ -29,7 +26,7 @@ def setup_logging():
         ],
         force=True,
     )
-    if str(os.getenv("IRC_DEBUG", "false")).lower() in ("true", "1", "yes"):
+    if str(settings.get("IRC_DEBUG", "false")).lower() in ("true", "1", "yes"):
         logging.getLogger("irc").setLevel(logging.DEBUG)
         logging.getLogger("irc.client").setLevel(logging.DEBUG)
         logging.getLogger("irc.connection").setLevel(logging.DEBUG)

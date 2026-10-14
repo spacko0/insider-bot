@@ -281,17 +281,47 @@ def test_znc_without_server_does_not_use_localhost(tmp_path):
     assert any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
 
 
-def test_shared_znc_account_warns(tmp_path):
+def test_nick_is_not_taken_from_the_bouncer_login(tmp_path):
     config = Config(
         base_env(
             tmp_path / "x.db",
+            IRC_NICKNAME="",
             IRC_USE_ZNC="true",
             ZNC_USERNAME="SharedLogin/Example",
             ZNC_PASSWORD="secret",
             ZNC_IRC_NICK="InsiderBot",
         )
     )
-    assert any("ZNC account is SharedLogin" in message for message in config.warnings)
+    assert config.IRC_NICKNAME == "InsiderBot"
+    assert config.irc_connect_nickname == "InsiderBot"
+    assert config.znc_ident_username == "SharedLogin/Example"
+    assert config.IRC_ZNC_STATUS_CONNECT is False
+
+
+def test_settings_come_only_from_the_env_file(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "IRC_SERVER=from-file.example",
+                "IRC_PORT=6667",
+                "IRC_NICKNAME=InsiderBot",
+                "BOT_OWNER=OwnerNick",
+                "IRC_USE_ZNC=true",
+                "ZNC_USERNAME=InsiderBot/Example",
+                "ZNC_PASSWORD=secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("IRC_SERVER", "from-shell.example")
+    monkeypatch.setenv("ZNC_USERNAME", "ModBot")
+    monkeypatch.setenv("ZNC_PASSWORD", "from-shell")
+    config = Config(env_file=env_file)
+    assert config.IRC_SERVER == "from-file.example"
+    assert config.ZNC_USERNAME == "InsiderBot/Example"
+    assert config.ZNC_PASSWORD == "secret"
+    assert config.settings_path == env_file
 
 
 def test_missing_server_and_owner_are_warnings(tmp_path):

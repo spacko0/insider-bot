@@ -6,11 +6,8 @@ Owner commands require the owner tier exactly.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Dict, FrozenSet, Mapping, Optional
-
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +48,24 @@ AUTH_TIER_ALIASES: Dict[str, str] = {
 }
 
 
+def read_env_file(path: Path) -> dict[str, str]:
+    """Read one env file. Nothing else is consulted."""
+    found: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return found
+    for line in lines:
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        key, _, value = text.partition("=")
+        key = key.strip()
+        if key:
+            found[key] = value.strip().strip('"').strip("'")
+    return found
+
+
 def _env_csv(source: Mapping[str, str], key: str) -> list:
     raw = source.get(key)
     if raw is None:
@@ -63,12 +78,15 @@ def _flag(source: Mapping[str, str], key: str, default: str = "false") -> bool:
 
 
 class Config:
-    def __init__(self, environ: Mapping[str, str] | None = None):
+    def __init__(self, environ: Mapping[str, str] | None = None, env_file: Path | None = None):
         if environ is None:
-            load_dotenv(REPO_ROOT / ".env", override=True)
-            self._env: Mapping[str, str] = os.environ
+            path = env_file or (REPO_ROOT / ".env")
+            self._env: Mapping[str, str] = read_env_file(path)
+            self.settings_path = path
+            logger.info("Loaded settings from %s", path)
         else:
             self._env = environ
+            self.settings_path = None
         self._load()
         self._validate()
 
@@ -119,7 +137,7 @@ class Config:
         self.IRC_RECONNECT_DELAY = int(self._get("IRC_RECONNECT_DELAY", "30"))
         self.IRC_MAX_RECONNECT_ATTEMPTS = int(self._get("IRC_MAX_RECONNECT_ATTEMPTS", "10"))
         self.IRC_RECONNECT_ON_SEND_FAILURE = _flag(self._env, "IRC_RECONNECT_ON_SEND_FAILURE", "true")
-        self.IRC_ZNC_STATUS_CONNECT = _flag(self._env, "IRC_ZNC_STATUS_CONNECT", "true")
+        self.IRC_ZNC_STATUS_CONNECT = False
         self.AUTO_IDENTIFY = _flag(self._env, "AUTO_IDENTIFY", "true")
         self.NICKSERV_PASSWORD = self._get("NICKSERV_PASSWORD")
         self.IRC_BURST_MAX_LINES = max(1, int(self._get("IRC_BURST_MAX_LINES", "8")))
@@ -151,13 +169,7 @@ class Config:
             return
         if self.ZNC_IRC_NICK and "/" not in self.ZNC_IRC_NICK:
             self.IRC_NICKNAME = self.ZNC_IRC_NICK
-            logger.info("IRC_NICKNAME is empty; using ZNC_IRC_NICK")
-            return
-        account = self.ZNC_USER or self.ZNC_USERNAME.split("/", 1)[0]
-        account = account.strip()
-        if account and "/" not in account:
-            self.IRC_NICKNAME = account
-            logger.info("IRC_NICKNAME is empty; using ZNC account name %s", account)
+            logger.info("IRC nick is %s", self.IRC_NICKNAME)
 
     def _take_host(self, host: str) -> None:
         if ":" in host and host.count(":") == 1:
@@ -385,15 +397,6 @@ class Config:
             if not self.znc_ident_username or not self.ZNC_PASSWORD:
                 self._warn_config(
                     "IRC_USE_ZNC is set but ZNC_PASSWORD or ZNC_USERNAME (or ZNC_USER + ZNC_NETWORK) is empty."
-                )
-            account = (self.znc_ident_username or "").split("/", 1)[0].strip()
-            nick = (self.irc_connect_nickname or "").strip()
-            if account and nick and account.casefold() != nick.casefold():
-                self._warn_config(
-                    f"ZNC account is {account} but the IRC nick is {nick}. "
-                    "A bouncer login stays on IRC as one nick. If that login is already online "
-                    f"as a different nick, a private message to {nick} never arrives. "
-                    "Use a ZNC account that belongs only to this bot."
                 )
         tls_ports = {6697, 6699, 7000, 7070, 9999}
         if not self.IRC_TLS and self.IRC_PORT in tls_ports:

@@ -297,29 +297,6 @@ class IRCConnection(SimpleIRCClient):
         if self.should_reconnect and not self._intentional_disconnect:
             self._schedule_reconnect()
 
-    def _try_znc_status_connect(self) -> bool:
-        if not getattr(self.config, "IRC_USE_ZNC", False):
-            return False
-        if not getattr(self.config, "IRC_ZNC_STATUS_CONNECT", True):
-            return False
-        conn = getattr(self, "connection", None)
-        if not conn or not getattr(conn, "connected", False):
-            return False
-        try:
-            conn.privmsg("*status", "connect")
-            logger.info("Sent ZNC *status connect before full reconnect")
-        except Exception as exc:
-            logger.warning("ZNC *status connect failed: %s", exc)
-            return False
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if self.irc_connected and self.connection_established.is_set():
-                logger.info("IRC restored after ZNC *status connect")
-                self.touch_irc_activity()
-                return True
-            time.sleep(0.5)
-        return False
-
     def _delayed_reconnect(self):
         if not self._reconnect_lock.acquire(blocking=False):
             logger.debug("IRC reconnect already in progress")
@@ -332,8 +309,6 @@ class IRCConnection(SimpleIRCClient):
                 time.sleep(1)
             if self.irc_connected and self.connection_established.is_set():
                 logger.info("IRC reconnect cancelled — connection already up")
-                return
-            if self._try_znc_status_connect():
                 return
             self.reconnect()
         except Exception:
@@ -477,15 +452,21 @@ class IRCConnection(SimpleIRCClient):
         self.reconnect_attempts = 0
         self.last_reconnect_attempt_time = None
         self.connection_established.set()
-        real_nick = (getattr(connection, "real_nickname", None) or "").strip()
-        if real_nick:
-            self.nickname = real_nick
+        wanted = (getattr(self.config, "irc_connect_nickname", None) or "").strip()
+        if wanted:
+            self.nickname = wanted
         logger.info(
             "IRC connection established (nick=%s, channels=%s)",
             self.nickname,
             ", ".join(self._channels) if self._channels else "(none configured)",
         )
         logger.info("Private messages must be sent to %s", self.nickname)
+        if getattr(self.config, "IRC_USE_ZNC", False) and wanted:
+            try:
+                connection.nick(wanted)
+                logger.info("IRC nick set to %s", wanted)
+            except Exception as exc:
+                logger.warning("Could not set IRC nick %s: %s", wanted, exc)
         self.start_irc_health_monitor()
         if self.config.AUTO_IDENTIFY and self.config.NICKSERV_PASSWORD and not self.config.IRC_USE_SASL:
             connection.privmsg("NickServ", f"IDENTIFY {self.config.NICKSERV_PASSWORD}")
