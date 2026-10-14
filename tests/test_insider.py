@@ -143,10 +143,16 @@ def test_commands_outside_command_channels_are_ignored(tmp_path):
     assert not registry.is_registered("carol")
 
 
+def test_playback_timestamp_still_runs_the_command(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(pm_event("[22:13:40] .help", "Carol"))
+    assert "InsiderBot" in visible(conn)
+
+
 def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     event = pm_event(".help", "Carol")
-    event["incoming_target"] = "ModBot"
+    event["incoming_target"] = "OtherNick"
     handler.handle(event)
     assert "InsiderBot" in visible(conn)
 
@@ -237,23 +243,19 @@ def test_znc_and_sasl_warns_and_keeps_znc(tmp_path):
     assert any("SASL is ignored" in message for message in config.warnings)
 
 
-def test_znc_blank_server_uses_modbot_env_not_localhost(tmp_path):
-    mod_env = tmp_path / "mod.env"
-    mod_env.write_text(
-        "IRC_SERVER=bouncer.example.net\nIRC_PORT=6697\nIRC_TLS=true\nZNC_PASSWORD=other\n",
-        encoding="utf-8",
-    )
+def test_znc_blank_server_uses_znc_server_not_localhost(tmp_path):
     config = Config(
         base_env(
             tmp_path / "x.db",
             IRC_SERVER="",
             IRC_NICKNAME="",
             IRC_PORT="6667",
-            IRC_TLS="false",
+            IRC_TLS="true",
             IRC_USE_ZNC="true",
+            ZNC_SERVER="bouncer.example.net:6697",
             ZNC_USERNAME="InsiderBot/Example",
             ZNC_PASSWORD="secret",
-            MODBOT_ENV_FILE=str(mod_env),
+            ZNC_IRC_NICK="InsiderBot",
         )
     )
     assert config.IRC_SERVER == "bouncer.example.net"
@@ -264,7 +266,7 @@ def test_znc_blank_server_uses_modbot_env_not_localhost(tmp_path):
     assert config.IRC_SERVER != "127.0.0.1"
 
 
-def test_znc_without_modbot_env_does_not_use_localhost(tmp_path):
+def test_znc_without_server_does_not_use_localhost(tmp_path):
     config = Config(
         base_env(
             tmp_path / "x.db",
@@ -272,11 +274,23 @@ def test_znc_without_modbot_env_does_not_use_localhost(tmp_path):
             IRC_USE_ZNC="true",
             ZNC_USERNAME="InsiderBot/Example",
             ZNC_PASSWORD="secret",
-            MODBOT_ENV_FILE=str(tmp_path / "missing.env"),
         )
     )
     assert config.IRC_SERVER == ""
     assert any(message.startswith("IRC_SERVER is not set") for message in config.warnings)
+
+
+def test_shared_znc_account_warns(tmp_path):
+    config = Config(
+        base_env(
+            tmp_path / "x.db",
+            IRC_USE_ZNC="true",
+            ZNC_USERNAME="SharedLogin/Example",
+            ZNC_PASSWORD="secret",
+            ZNC_IRC_NICK="InsiderBot",
+        )
+    )
+    assert any("ZNC account is SharedLogin" in message for message in config.warnings)
 
 
 def test_missing_server_and_owner_are_warnings(tmp_path):

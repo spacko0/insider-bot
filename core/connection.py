@@ -1,9 +1,8 @@
 # core/connection.py
 """IRC session: TLS, SASL or ZNC, welcome gate, health checks, reconnect.
 
-Behavior matches mod-bot's connection, with two changes: the health monitor
-starts as soon as the socket connects (so a missing 001 is noticed), and an
-in-progress reconnect does not schedule a second one.
+The health monitor starts as soon as the socket connects, so a missing 001
+is noticed. An in-progress reconnect does not schedule a second one.
 """
 from __future__ import annotations
 
@@ -438,12 +437,15 @@ class IRCConnection(SimpleIRCClient):
                 self.connection = self.reactor.server().connect(**connect_kwargs)
                 self.nickname = nickname
                 self.connection.add_global_handler("join", self._on_join)
+                self.connection.add_global_handler("nick", self._on_nick)
+                self.connection.add_global_handler("nicknameinuse", self._on_nicknameinuse)
+                self.connection.add_global_handler("privmsg", self._on_privmsg)
                 self.connection.add_global_handler("ping", self._on_incoming_ping)
                 self.connection.add_global_handler("pong", self._on_pong_health)
                 self.connection.add_global_handler("notice", self.on_notice)
                 if not self._reactor_process_forever_started:
                     threading.Thread(
-                        target=self.reactor.process_forever,
+                        target=self._run_reactor,
                         daemon=True,
                         name="IRCReactorProcessForever",
                     ).start()
@@ -454,6 +456,14 @@ class IRCConnection(SimpleIRCClient):
             except Exception as exc:
                 logger.error("Connection failed: %s", exc)
                 return False
+
+    def _run_reactor(self):
+        try:
+            self.reactor.process_forever()
+        except Exception:
+            logger.error("IRC reactor stopped", exc_info=True)
+            self.irc_connected = False
+            self.connection_established.clear()
 
     def on_welcome(self, connection, event):
         self.touch_irc_activity()
@@ -470,7 +480,14 @@ class IRCConnection(SimpleIRCClient):
             self.nickname,
             ", ".join(self._channels) if self._channels else "(none configured)",
         )
+        logger.info("Private messages must be sent to %s", self.nickname)
         self.start_irc_health_monitor()
+        if self.config.IRC_USE_ZNC and getattr(self.config, "IRC_ZNC_STATUS_CONNECT", True):
+            try:
+                connection.privmsg("*status", "connect")
+                logger.info("Asked the bouncer to connect its IRC network")
+            except Exception as exc:
+                logger.warning("Bouncer status connect failed: %s", exc)
         if self.config.AUTO_IDENTIFY and self.config.NICKSERV_PASSWORD and not self.config.IRC_USE_SASL:
             connection.privmsg("NickServ", f"IDENTIFY {self.config.NICKSERV_PASSWORD}")
             logger.info("Sent auto-identify to NickServ")
@@ -479,8 +496,38 @@ class IRCConnection(SimpleIRCClient):
                 if channel.strip():
                     connection.join(channel.strip())
 
+    def _on_privmsg(self, connection, event):
+        self.touch_irc_activity()
+        text = event.arguments[0] if event.arguments else ""
+        source = str(event.source or "unknown").split("!")[0]
+        logger.info("PM from %s to %s: %s", source, event.target, text)
+
+    def _on_nick(self, connection, event):
+        self.touch_irc_activity()
+        new_nick = str(event.arguments[0]).lstrip(":").strip() if event.arguments else ""
+        source = str(event.source or "").split("!")[0]
+        previous = (self.nickname or "").strip()
+        real = (getattr(connection, "real_nickname", None) or "").strip()
+        if new_nick and source.casefold() in {previous.casefold(), real.casefold(), ""}:
+            if new_nick != previous:
+                logger.info("IRC nick changed from %s to %s", previous or "(none)", new_nick)
+                logger.info("Private messages must be sent to %s", new_nick)
+            self.nickname = new_nick
+
+    def _on_nicknameinuse(self, connection, event):
+        detail = " ".join(str(part) for part in (event.arguments or []))
+        logger.error(
+            "IRC nick %s is already in use (%s). A private message to that nick will not reach this bot.",
+            self.nickname,
+            detail or "no detail",
+        )
+
     def on_notice(self, connection, event):
         self.touch_irc_activity()
+        source = str(event.source or "").split("!")[0]
+        text = event.arguments[0] if event.arguments else ""
+        if source.startswith("*"):
+            logger.info("Bouncer notice from %s: %s", source, text)
         if event.arguments and "You are now identified" in event.arguments[0]:
             logger.info("Authenticated with NickServ")
             if self.config.AUTO_JOIN_CHANNELS:

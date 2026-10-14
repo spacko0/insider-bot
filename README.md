@@ -1,8 +1,8 @@
 # InsiderBot
 
-IRC bot for a private roster of people, the sites they work on, news links, and site bans. It is a separate project from mod-bot. The IRC connection (TLS, SASL or ZNC, health checks, reconnect) and the nick tiers use the same settings.
+IRC bot for a private roster of people, the sites they work on, news links, and site bans. It has its own repository, its own `.env`, and its own database. It does not read settings from any other bot.
 
-Commands use a `.` prefix so they do not collide with mod-bot's `!` commands in a shared channel. Run InsiderBot with its own nick. If you use ZNC, give it its own user (for example `InsiderBot/Network`), not mod-bot's.
+Commands use a `.` prefix. Run it with its own nick. If you use ZNC, give it its own user (for example `InsiderBot/Network`) and set `IRC_SERVER` to that bouncer. One bouncer login holds one IRC nick, so a shared login will not receive private messages sent to a different nick.
 
 **Version:** [`version.py`](version.py)
 
@@ -35,11 +35,11 @@ On the server, from the repo root after `.env` is filled in:
 ./deploy/start-insiderbot-tmux.sh
 ```
 
-That starts a detached session named `insider-bot`, separate from mod-bot. Attach with `tmux attach -t insider-bot`. Detach with `Ctrl-b` then `d`. Stop with `tmux kill-session -t insider-bot`.
+That starts a detached session named `insider-bot`. Attach with `tmux attach -t insider-bot`. Detach with `Ctrl-b` then `d`. Stop with `tmux kill-session -t insider-bot`.
 
 ## Two kinds of people
 
-**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`). Higher tiers include the lower ones. Owner commands require the owner tier exactly, same as mod-bot.
+**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`). Higher tiers include the lower ones. Owner commands require the owner tier exactly.
 
 **Registered users** are nicks stored by `.register`, with a site and a position. Anyone can register their own nick. A bot admin (admin, team leader, coder, or owner) can register someone else.
 

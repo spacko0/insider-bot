@@ -1,6 +1,6 @@
 """IRC connection settings and nick command tiers.
 
-Tiers match mod-bot: a higher rank inherits every lower rank.
+A higher rank inherits every lower rank.
 Owner commands require the owner tier exactly.
 """
 from __future__ import annotations
@@ -49,23 +49,6 @@ AUTH_TIER_ALIASES: Dict[str, str] = {
     "bot_user": "torrent_moderators",
     "bot_users": "torrent_moderators",
 }
-
-
-def _read_env_file(path: Path) -> dict[str, str]:
-    found: dict[str, str] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return found
-    for line in lines:
-        text = line.strip()
-        if not text or text.startswith("#") or "=" not in text:
-            continue
-        key, _, value = text.partition("=")
-        key = key.strip()
-        if key:
-            found[key] = value.strip().strip('"').strip("'")
-    return found
 
 
 def _env_csv(source: Mapping[str, str], key: str) -> list:
@@ -156,7 +139,7 @@ class Config:
         self.warnings: list[str] = []
 
     def _apply_connection_fallbacks(self) -> None:
-        """Blank IRC_SERVER with ZNC on uses mod-bot's bouncer, never this machine."""
+        """A blank IRC_SERVER can be filled from ZNC_SERVER or ZNC_HOST in this environment."""
         if not self.IRC_SERVER:
             for key in ("ZNC_SERVER", "ZNC_HOST"):
                 host = self._get(key).strip()
@@ -164,8 +147,6 @@ class Config:
                     self._take_host(host)
                     logger.info("Using bouncer address from %s", key)
                     break
-        if not self.IRC_SERVER and self.IRC_USE_ZNC:
-            self._borrow_modbot_endpoint()
         if self.IRC_NICKNAME:
             return
         if self.ZNC_IRC_NICK and "/" not in self.ZNC_IRC_NICK:
@@ -177,33 +158,6 @@ class Config:
         if account and "/" not in account:
             self.IRC_NICKNAME = account
             logger.info("IRC_NICKNAME is empty; using ZNC account name %s", account)
-
-    def _borrow_modbot_endpoint(self) -> None:
-        explicit = self._get("MODBOT_ENV_FILE").strip()
-        if explicit:
-            paths = [Path(explicit)]
-        else:
-            paths = [REPO_ROOT.parent / "mod-bot" / ".env", Path.home() / "mod-bot" / ".env"]
-        env: dict[str, str] = {}
-        used: Path | None = None
-        for path in paths:
-            if path.is_file():
-                env = _read_env_file(path)
-                used = path
-                break
-        host = (env.get("IRC_SERVER") or "").strip()
-        if not host or not used:
-            return
-        self._take_host(host)
-        port = (env.get("IRC_PORT") or "").strip()
-        if port.isdigit():
-            self.IRC_PORT = int(port)
-        tls = (env.get("IRC_TLS") or "").strip().lower()
-        if tls in ("true", "1", "yes"):
-            self.IRC_TLS = True
-        elif tls in ("false", "0", "no"):
-            self.IRC_TLS = False
-        logger.info("Using mod-bot IRC endpoint %s:%s", self.IRC_SERVER, self.IRC_PORT)
 
     def _take_host(self, host: str) -> None:
         if ":" in host and host.count(":") == 1:
@@ -431,6 +385,15 @@ class Config:
             if not self.znc_ident_username or not self.ZNC_PASSWORD:
                 self._warn_config(
                     "IRC_USE_ZNC is set but ZNC_PASSWORD or ZNC_USERNAME (or ZNC_USER + ZNC_NETWORK) is empty."
+                )
+            account = (self.znc_ident_username or "").split("/", 1)[0].strip()
+            nick = (self.irc_connect_nickname or "").strip()
+            if account and nick and account.casefold() != nick.casefold():
+                self._warn_config(
+                    f"ZNC account is {account} but the IRC nick is {nick}. "
+                    "A bouncer login stays on IRC as one nick. If that login is already online "
+                    f"as a different nick, a private message to {nick} never arrives. "
+                    "Use a ZNC account that belongs only to this bot."
                 )
         tls_ports = {6697, 6699, 7000, 7070, 9999}
         if not self.IRC_TLS and self.IRC_PORT in tls_ports:

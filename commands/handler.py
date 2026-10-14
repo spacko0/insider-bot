@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -12,6 +13,10 @@ from store.registry import RegistryError
 from utils.irc_burst import send_via_connection
 
 logger = logging.getLogger(__name__)
+
+_PLAYBACK_PREFIX = re.compile(
+    r"^\[(?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}(?::\d{2})?\]\s*"
+)
 
 PUBLIC_COMMANDS = frozenset({"help", "register"})
 MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "banuser", "unregister"})
@@ -28,7 +33,7 @@ class CommandHandler:
 
     def handle(self, event) -> bool:
         try:
-            message = (event.get("message") or "").strip()
+            message = _PLAYBACK_PREFIX.sub("", (event.get("message") or "").strip())
             source = (event.get("source") or "unknown").strip()
             prefix = self.config.COMMAND_PREFIX
             if not message.startswith(prefix):
