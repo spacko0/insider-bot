@@ -149,36 +149,50 @@ class CommandHandler:
         return self.config.COMMAND_PREFIX
 
     def cmd_help(self, nick: str, event: dict, args: str) -> bool:
+        topic = args.split(maxsplit=1)[0].lower() if args.strip() else ""
+        if topic == "admin":
+            return self._help_admin(nick, event)
+        if topic:
+            self._reply(event, f"Unknown help topic. Try {self._prefix()}help or {self._prefix()}help admin")
+            return False
         prefix = self._prefix()
         lines = [
             "InsiderBot",
-            f"{prefix}register <nick> <site> <position> — register a nick, site, and position",
             f"{prefix}help — this list",
+            f"{prefix}register <nick> <site> <position> — register a nick, site, and position",
         ]
         if self._is_member(nick):
             lines.extend(
                 [
+                    f"{prefix}unregister <nick> — remove your registration",
                     f"{prefix}news [count] — recent articles and reddit posts",
                     f"{prefix}addnews <url> [note] — add a news URL",
                     f"{prefix}banned [site] — users banned from sites",
                     f"{prefix}banuser <user> <site> <reason> — record a site ban",
-                    f"{prefix}unregister <nick> — remove your registration",
                 ]
             )
         if self.config.is_admin_or_above(nick):
-            lines.extend(
-                [
-                    f"{prefix}registered [site] — registered nicks (admins and above; PM from a channel)",
-                    f"{prefix}unban <user> [site] — remove a ban",
-                    f"{prefix}delnews <id> — remove a news item",
-                    f"{prefix}join <#channel>",
-                    f"{prefix}part <#channel>",
-                ]
-            )
-        if self.config.is_owner(nick):
-            lines.extend([f"{prefix}reconnect", f"{prefix}exit"])
+            lines.append(f"{prefix}help admin — admin commands")
         if not self._is_member(nick):
             lines.append("News, bans, and the registered list unlock after you register, or if your nick is a bot user.")
+        self._reply(event, lines)
+        return True
+
+    def _help_admin(self, nick: str, event: dict) -> bool:
+        if not self.config.is_admin_or_above(nick):
+            self._reply(event, "That command is limited to bot admins and above.")
+            return False
+        prefix = self._prefix()
+        lines = [
+            "Admin",
+            f"{prefix}registered [site] — registered nicks (PM from a channel)",
+            f"{prefix}unban <user> [site] — remove a ban",
+            f"{prefix}delnews <id> — remove a news item",
+            f"{prefix}join <#channel>",
+            f"{prefix}part <#channel>",
+        ]
+        if self.config.is_owner(nick):
+            lines.extend([f"{prefix}reconnect", f"{prefix}exit"])
         self._reply(event, lines)
         return True
 

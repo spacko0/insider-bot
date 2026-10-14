@@ -150,6 +150,32 @@ def test_playback_timestamp_is_not_a_command(tmp_path):
     assert conn.sent == []
 
 
+def test_help_groups_member_commands_and_hides_admin(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(pm_event(".help", "OwnerNick"))
+    text = visible(conn)
+    assert text.index(".help —") < text.index(".register")
+    assert text.index(".unregister") < text.index(".news")
+    assert text.index(".news") < text.index(".addnews")
+    assert text.index(".banned") < text.index(".banuser")
+    assert ".unban" not in text
+    assert ".delnews" not in text
+    assert ".join" not in text
+    assert ".reconnect" not in text
+    assert ".exit" not in text
+    conn.sent.clear()
+    handler.handle(pm_event(".help admin", "OwnerNick"))
+    admin = visible(conn)
+    assert admin.index(".registered") < admin.index(".unban")
+    assert ".delnews" in admin
+    assert admin.index(".join") < admin.index(".part")
+    assert ".reconnect" in admin
+    assert ".exit" in admin
+    conn.sent.clear()
+    handler.handle(pm_event(".help admin", "Carol"))
+    assert "bot admins and above" in visible(conn)
+
+
 def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     event = pm_event(".help", "Carol")
