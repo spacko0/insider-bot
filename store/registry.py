@@ -75,6 +75,7 @@ class Registry:
                 """
             )
             self._migrate_registered(conn)
+            self._pack_news_ids(conn)
 
     def _migrate_registered(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(
@@ -285,12 +286,13 @@ class Registry:
                     row["note"] = note_text
                     return "refreshed", row
                 return "duplicate", row
+            news_id = self._next_news_id(conn)
             conn.execute(
                 """
-                INSERT INTO news (url, kind, note, added_by, added_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO news (id, url, kind, note, added_by, added_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (clean_url, kind, note_text, actor, stamp),
+                (news_id, clean_url, kind, note_text, actor, stamp),
             )
             row = conn.execute(
                 "SELECT * FROM news WHERE url = ?", (clean_url,)
@@ -309,6 +311,33 @@ class Registry:
         with self._db() as conn:
             cur = conn.execute("DELETE FROM news WHERE id = ?", (int(news_id),))
             return cur.rowcount > 0
+
+    @staticmethod
+    def _next_news_id(conn: sqlite3.Connection) -> int:
+        """Lowest free news number, so a deleted slot is used by the next add."""
+        expect = 1
+        for (news_id,) in conn.execute("SELECT id FROM news ORDER BY id"):
+            if news_id != expect:
+                return expect
+            expect += 1
+        return expect
+
+    @staticmethod
+    def _pack_news_ids(conn: sqlite3.Connection) -> None:
+        """Close holes left by the old autoincrement counter."""
+        rows = list(conn.execute("SELECT id FROM news ORDER BY id"))
+        expect = 1
+        for (news_id,) in rows:
+            if news_id != expect:
+                conn.execute("UPDATE news SET id = ? WHERE id = ?", (expect, news_id))
+            expect += 1
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+        ).fetchone():
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'news'")
+            conn.execute(
+                "INSERT INTO sqlite_sequence(name, seq) SELECT 'news', COALESCE(MAX(id), 0) FROM news"
+            )
 
     @staticmethod
     def _nick(raw: str) -> tuple[str, str]:

@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from utils.irc_format import irc_mirc_color, irc_monospace, irc_pad_visible
 
+_DATE_WIDTH = 10
+_SITE_WIDTH = 16
 _NICK_WIDTH = 16
+_LAST_WIDTH = 24
 
 
 def _clip(text: str, limit: int) -> str:
@@ -17,18 +20,20 @@ def format_registered(rows: list[dict], *, colors: bool) -> list[str]:
     if not rows:
         return ["No registered users."]
     lines = [irc_mirc_color(f"Registered ({len(rows)})", "07", colors)]
-    lines.append(
-        irc_monospace(
-            f"{irc_pad_visible('Date', 10)} | {irc_pad_visible('Site', 16)} | "
-            f"{irc_pad_visible('User', _NICK_WIDTH)} | Position"
+    lines.extend(
+        _table(
+            ("Date", "Site", "User", "Position"),
+            [
+                [
+                    _ban_date(row.get("registered_at")),
+                    row.get("site") or "?",
+                    row.get("display_nick") or "?",
+                    row.get("position") or "",
+                ]
+                for row in rows
+            ],
         )
     )
-    for row in rows:
-        date = _ban_date(row.get("registered_at"))
-        site = irc_pad_visible(_clip(row.get("site") or "?", 16), 16)
-        nick = irc_pad_visible(_clip(row.get("display_nick") or "?", _NICK_WIDTH), _NICK_WIDTH)
-        position = _clip(row.get("position") or "", 80)
-        lines.append(irc_monospace(f"{date} | {site} | {nick} | {position}"))
     return lines
 
 
@@ -36,24 +41,35 @@ def format_banned(rows: list[dict], *, colors: bool) -> list[str]:
     if not rows:
         return ["No banned users."]
     lines = [irc_mirc_color(f"Banned ({len(rows)})", "04", colors)]
-    lines.append(
-        irc_monospace(
-            f"{irc_pad_visible('Date', 10)} | {irc_pad_visible('Site', 16)} | "
-            f"{irc_pad_visible('User', _NICK_WIDTH)} | Reason"
+    lines.extend(
+        _table(
+            ("Date", "Site", "User", "Reason"),
+            [
+                [
+                    _ban_date(row.get("added_at")),
+                    row.get("site") or "?",
+                    row.get("display_nick") or "?",
+                    row.get("reason") or "",
+                ]
+                for row in rows
+            ],
         )
     )
-    for row in rows:
-        when = _clip(_ban_date(row.get("added_at")), 10)
-        site = _clip(row.get("site") or "?", 16)
-        nick = _clip(row.get("display_nick") or "?", _NICK_WIDTH)
-        reason = _clip(row.get("reason") or "", 180)
-        lines.append(
-            irc_monospace(
-                f"{irc_pad_visible(when, 10)} | {irc_pad_visible(site, 16)} | "
-                f"{irc_pad_visible(nick, _NICK_WIDTH)} | {reason}"
-            )
-        )
     return lines
+
+
+def _table(headers: tuple[str, ...], rows: list[list[str]]) -> list[str]:
+    widths = (_DATE_WIDTH, _SITE_WIDTH, _NICK_WIDTH, _LAST_WIDTH)
+    lines = [_table_row(list(headers), widths)]
+    lines.extend(_table_row(cells, widths) for cells in rows)
+    return lines
+
+
+def _table_row(cells: list[str], widths: tuple[int, ...]) -> str:
+    padded = [
+        irc_pad_visible(_clip(cell, width), width) for cell, width in zip(cells, widths)
+    ]
+    return irc_monospace(" | ".join(padded))
 
 
 def _ban_date(stamp: str | None) -> str:

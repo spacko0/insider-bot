@@ -91,6 +91,21 @@ def test_registry_register_ban_and_news(tmp_path):
     assert dup["id"] == item["id"]
     assert registry.delete_news(item["id"])
     assert registry.list_news(10) == []
+    _, reused = registry.add_news("https://example.com/next", "article", "next", by="ada")
+    assert reused["id"] == 1
+    _, kept = registry.add_news("https://example.com/kept", "article", "kept", by="ada")
+    assert kept["id"] == 2
+    assert registry.delete_news(reused["id"])
+    _, filled = registry.add_news("https://example.com/filled", "article", "filled", by="ada")
+    assert filled["id"] == 1
+    hole = Registry(tmp_path / "hole.db")
+    hole.add_news("https://example.com/a", "article", "a", by="ada")
+    hole.add_news("https://example.com/b", "article", "b", by="ada")
+    assert hole.delete_news(1)
+    reopened = Registry(tmp_path / "hole.db")
+    packed = reopened.list_news(5)
+    assert packed[0]["id"] == 1
+    assert packed[0]["url"] == "https://example.com/b"
     with pytest.raises(RegistryError):
         registry.register("has space", "Site", "Role", by="ada")
 
@@ -194,8 +209,11 @@ def test_registered_user_can_add_news_and_bans_but_not_the_roster(tmp_path):
     assert "leaked a screen" in text
     assert "MidnightScene" in text
     assert "Date" in text
-    lines = [message for _target, message in conn.sent]
+    lines = [message.replace("\u00a0", " ").replace("\x11", "") for _target, message in conn.sent]
     assert not any(line.strip() == "MidnightScene" for line in lines)
+    header = next(line for line in lines if line.startswith("Date"))
+    data = next(line for line in lines if "Eve" in line)
+    assert len(header) == len(data)
     conn.sent.clear()
     handler.handle(channel_event(".registered", "Dave"))
     assert "bot admins and above" in visible(conn)
