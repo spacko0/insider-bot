@@ -15,7 +15,7 @@ from utils.irc_format import is_znc_playback
 logger = logging.getLogger(__name__)
 
 PUBLIC_COMMANDS = frozenset({"help", "register"})
-MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "banuser", "unregister"})
+MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "ban", "banuser", "unregister"})
 ADMIN_COMMANDS = frozenset({"registered", "unban", "delnews", "join", "part"})
 OWNER_COMMANDS = frozenset({"reconnect", "exit"})
 
@@ -168,7 +168,8 @@ class CommandHandler:
                     f"{prefix}news [count] — recent articles and reddit posts",
                     f"{prefix}addnews <url> [note] — add a news URL",
                     f"{prefix}banned [site] — users banned from sites",
-                    f"{prefix}banuser <user> <site> <reason> — record a site ban",
+                    f"{prefix}ban <user> [site] <reason> — record a site ban",
+                    f"{prefix}banuser <user> [site] <reason> — same as {prefix}ban",
                 ]
             )
         if self.config.is_admin_or_above(nick):
@@ -269,20 +270,40 @@ class CommandHandler:
         self._reply(event, format_banned(rows, colors=self._colors()))
         return True
 
+    def cmd_ban(self, nick: str, event: dict, args: str) -> bool:
+        return self._record_ban(nick, event, args)
+
     def cmd_banuser(self, nick: str, event: dict, args: str) -> bool:
+        return self._record_ban(nick, event, args)
+
+    def _record_ban(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
-        parts = args.split(maxsplit=2)
-        if len(parts) < 3:
-            self._reply(event, f"Usage: {prefix}banuser <user> <site> <reason>")
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            self._reply(event, f"Usage: {prefix}ban <user> [site] <reason>")
             return False
-        user, site, reason = parts
+        user, rest = parts[0], parts[1].strip()
+        registered = self.registry.get_registered(user)
+        head, _, tail = rest.partition(" ")
+        if registered and head.casefold() == str(registered.get("site") or "").casefold() and tail.strip():
+            site = registered["site"]
+            reason = tail.strip()
+        elif registered:
+            site = registered["site"]
+            reason = rest
+        elif tail.strip():
+            site = head
+            reason = tail.strip()
+        else:
+            self._reply(event, f"{user.strip()} is not registered. Usage: {prefix}ban <user> <site> <reason>")
+            return False
         try:
             status = self.registry.ban(user, site, reason, by=nick)
         except RegistryError as exc:
             self._reply(event, str(exc))
             return False
         verb = "Updated ban" if status == "updated" else "Banned"
-        self._reply(event, f"{verb} for {user.strip()} on {site.strip()}: {reason.strip()}")
+        self._reply(event, f"{verb} for {user.strip()} on {site}: {reason}")
         return True
 
     def cmd_registered(self, nick: str, event: dict, args: str) -> bool:

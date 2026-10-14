@@ -186,7 +186,7 @@ class Registry:
         if site and site.strip():
             sql += " WHERE site_key = ?"
             params = (" ".join(site.split()).casefold(),)
-        sql += " ORDER BY site_key, nick"
+        sql += " ORDER BY added_at DESC, site_key, nick"
         with self._db() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]

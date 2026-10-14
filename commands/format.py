@@ -33,17 +33,31 @@ def format_banned(rows: list[dict], *, colors: bool) -> list[str]:
     if not rows:
         return ["No banned users."]
     lines = [irc_mirc_color(f"Banned ({len(rows)})", "04", colors)]
-    current = None
+    lines.append(
+        irc_monospace(
+            f"{irc_pad_visible('Date', 10)} | {irc_pad_visible('Site', 16)} | "
+            f"{irc_pad_visible('User', _NICK_WIDTH)} | Reason"
+        )
+    )
     for row in rows:
-        site = row.get("site") or "?"
-        if site != current:
-            current = site
-            lines.append(irc_mirc_color(site, "04", colors))
-        nick = irc_pad_visible(_clip(row.get("display_nick") or "?", _NICK_WIDTH), _NICK_WIDTH)
+        when = _clip(_ban_date(row.get("added_at")), 10)
+        site = _clip(row.get("site") or "?", 16)
+        nick = _clip(row.get("display_nick") or "?", _NICK_WIDTH)
         reason = _clip(row.get("reason") or "", 180)
-        added_by = _clip(row.get("added_by") or "?", 32)
-        lines.append(irc_monospace(f"{nick} | {reason} (by {added_by})"))
+        lines.append(
+            irc_monospace(
+                f"{irc_pad_visible(when, 10)} | {irc_pad_visible(site, 16)} | "
+                f"{irc_pad_visible(nick, _NICK_WIDTH)} | {reason}"
+            )
+        )
     return lines
+
+
+def _ban_date(stamp: str | None) -> str:
+    text = (stamp or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    return text or "?"
 
 
 def format_news(rows: list[dict], *, colors: bool, prefix: str = ".") -> list[str]:

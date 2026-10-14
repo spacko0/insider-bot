@@ -94,8 +94,13 @@ def test_registered_user_can_add_news_and_bans_but_not_the_roster(tmp_path):
     assert "Banned for Eve on MidnightScene" in visible(conn)
     conn.sent.clear()
     handler.handle(channel_event(".banned MidnightScene", "Dave"))
-    assert "Eve" in visible(conn)
-    assert "leaked a screen" in visible(conn)
+    text = visible(conn)
+    assert "Eve" in text
+    assert "leaked a screen" in text
+    assert "MidnightScene" in text
+    assert "Date" in text
+    lines = [message for _target, message in conn.sent]
+    assert not any(line.strip() == "MidnightScene" for line in lines)
     conn.sent.clear()
     handler.handle(channel_event(".registered", "Dave"))
     assert "bot admins and above" in visible(conn)
@@ -176,7 +181,22 @@ def test_help_groups_member_commands_and_hides_admin(tmp_path):
     assert "bot admins and above" in visible(conn)
 
 
-def test_pm_is_handled_even_if_the_target_nick_differs(tmp_path):
+def test_ban_without_a_site_uses_the_registered_site(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".register Eve MidnightScene Editor", "Alice"))
+    conn.sent.clear()
+    handler.handle(channel_event(".ban Eve leaked a screen", "Bob"))
+    assert "on MidnightScene" in visible(conn)
+    row = registry.list_banned()[0]
+    assert row["site"] == "MidnightScene"
+    assert row["reason"] == "leaked a screen"
+    assert row["added_at"][:10].count("-") == 2
+    conn.sent.clear()
+    handler.handle(channel_event(".banuser Eve MidnightScene still leaking", "Bob"))
+    assert registry.list_banned()[0]["reason"] == "still leaking"
+    conn.sent.clear()
+    handler.handle(channel_event(".ban Stranger nowhere", "Bob"))
+    assert "not registered" in visible(conn)
     handler, conn, _registry = make_handler(tmp_path)
     event = pm_event(".help", "Carol")
     event["incoming_target"] = "OtherNick"
