@@ -39,7 +39,7 @@ That starts a detached session named `insider-bot`. Attach with `tmux attach -t 
 
 ## Two kinds of people
 
-**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`). Higher tiers include the lower ones. Owner commands require the owner tier exactly.
+**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`) and nicks the owner adds with `.adduser`. Higher tiers include the lower ones. Owner commands require the owner tier exactly. A nick without access to a command gets no reply.
 
 **Registered users** are nicks stored by `.register <site> <position>`. The same nick can be on more than one site, each with its own position. A bot admin sets someone else's site and position with `.update <nick> <site> <position>`.
 
@@ -62,6 +62,7 @@ Member commands (news and bans) work for a registered nick or any bot user.
 | `.delnews <id>` | Bot admins and above |
 | `.join <#channel>` / `.part <#channel>` | Bot admins and above |
 | `.reconnect` / `.exit` | Bot owner |
+| `.adduser <nick>` / `.deluser <nick>` | Bot owner. Adds or removes a bot user stored in the database. Nicks set in `.env` stay until that file changes. |
 
 `.registered` and `.banned` are tables. Registered columns are date, site, user, and position. Banned columns are date, site, user, and reason.
 

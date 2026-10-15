@@ -213,7 +213,7 @@ def test_admin_updates_a_position_and_old_rows_keep_multiple_sites(tmp_path):
 def test_stranger_must_register_before_member_commands(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     handler.handle(channel_event(".news", "Carol"))
-    assert "Register first" in visible(conn)
+    assert conn.sent == []
     conn.sent.clear()
     handler.handle(channel_event("hello", "Carol"))
     assert conn.sent == []
@@ -230,7 +230,7 @@ def test_anyone_can_register_own_nick_not_someone_else(tmp_path):
     assert {row["site"] for row in registry.registrations_for("carol")} == {"MidnightScene", "OtherSite"}
     conn.sent.clear()
     handler.handle(channel_event(".update Alice MidnightScene Editor", "Carol"))
-    assert "bot admins and above" in visible(conn)
+    assert conn.sent == []
     assert registry.get_registered("alice") is None
 
 
@@ -275,7 +275,7 @@ def test_registered_user_can_add_news_and_bans_but_not_the_roster(tmp_path):
     assert len(header) == len(data)
     conn.sent.clear()
     handler.handle(channel_event(".registered", "Dave"))
-    assert "bot admins and above" in visible(conn)
+    assert conn.sent == []
 
 
 def test_bot_user_can_use_member_commands_without_registering(tmp_path):
@@ -350,9 +350,11 @@ def test_help_groups_member_commands_and_hides_admin(tmp_path):
     assert ".reconnect" not in admin
     assert ".exit" not in admin
     assert ".update" in admin
+    assert ".adduser" in admin
+    assert ".deluser" in admin
     conn.sent.clear()
     handler.handle(pm_event(".help admin", "Carol"))
-    assert "bot admins and above" in visible(conn)
+    assert conn.sent == []
 
 
 def test_ban_without_a_site_uses_the_registered_site(tmp_path):
@@ -398,7 +400,7 @@ def test_admin_maintenance_and_owner_exit(tmp_path):
     handler.handle(channel_event(".addnews https://example.com/z", "Carol"))
     conn.sent.clear()
     handler.handle(channel_event(".unban Eve MidnightScene", "Bob"))
-    assert "bot admins" in visible(conn)
+    assert conn.sent == []
     assert registry.list_banned()
     conn.sent.clear()
     handler.handle(channel_event(".unban Eve", "Alice", "#staff"))
@@ -415,10 +417,38 @@ def test_admin_maintenance_and_owner_exit(tmp_path):
     conn.sent.clear()
     handler.handle(channel_event(".exit", "Alice", "#staff"))
     assert app.exited is False
-    assert "bot owner" in visible(conn)
+    assert conn.sent == []
     conn.sent.clear()
     handler.handle(channel_event(".exit", "OwnerNick", "#staff"))
     assert app.exited is True
+
+
+def test_owner_can_add_and_remove_a_bot_user(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".adduser NewNick", "Alice", "#staff"))
+    assert conn.sent == []
+    assert not registry.is_bot_user("NewNick")
+    handler.handle(channel_event(".adduser NewNick", "OwnerNick", "#staff"))
+    assert "Added NewNick as a bot user." in visible(conn)
+    assert registry.is_bot_user("newnick")
+    reopened = Registry(registry.path)
+    assert reopened.is_bot_user("NewNick")
+    conn.sent.clear()
+    handler.handle(channel_event(".news", "NewNick"))
+    assert "No news yet" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".adduser NewNick", "OwnerNick", "#staff"))
+    assert "already a bot user" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".deluser Bob", "OwnerNick", "#staff"))
+    assert "settings file" in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".deluser NewNick", "OwnerNick", "#staff"))
+    assert "Removed bot user NewNick." in visible(conn)
+    assert not registry.is_bot_user("NewNick")
+    conn.sent.clear()
+    handler.handle(channel_event(".news", "NewNick"))
+    assert conn.sent == []
 
 
 def test_moderator_below_channel_rank_is_silent_for_admin_command(tmp_path):
@@ -426,7 +456,7 @@ def test_moderator_below_channel_rank_is_silent_for_admin_command(tmp_path):
     handler.handle(channel_event(".registered", "ModNick", "#staff"))
     assert conn.sent == []
     handler.handle(channel_event(".registered", "ModNick", "#insiders"))
-    assert "bot admins and above" in visible(conn)
+    assert conn.sent == []
 
 
 def test_auth_tiers_and_channel_gate():

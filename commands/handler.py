@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 PUBLIC_COMMANDS = frozenset({"help", "register"})
 MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "ban", "banuser", "unregister"})
 ADMIN_COMMANDS = frozenset({"registered", "update", "unban", "delnews", "join", "part"})
-OWNER_COMMANDS = frozenset({"reconnect", "exit"})
+OWNER_COMMANDS = frozenset({"reconnect", "exit", "adduser", "deluser"})
 
 
 class CommandHandler:
@@ -61,20 +61,14 @@ class CommandHandler:
                 return self._dispatch(command, nick, event, args)
             if command in MEMBER_COMMANDS:
                 if not self._is_member(nick):
-                    self._reply(
-                        event,
-                        f"Register first: {prefix}register <nick> <site> <position>",
-                    )
                     return False
                 return self._dispatch(command, nick, event, args)
             if command in ADMIN_COMMANDS:
                 if not self.config.is_admin_or_above(nick):
-                    self._reply(event, "That command is limited to bot admins and above.")
                     return False
                 return self._dispatch(command, nick, event, args)
             if command in OWNER_COMMANDS:
                 if not self.config.is_owner(nick):
-                    self._reply(event, "That command is limited to the bot owner.")
                     return False
                 return self._dispatch(command, nick, event, args)
             if self._is_member(nick):
@@ -95,6 +89,8 @@ class CommandHandler:
         if nick.lower() == "terminal":
             return True
         if self.config.is_bot_user(nick):
+            return True
+        if self.registry.is_bot_user(nick):
             return True
         return self.registry.is_registered(nick)
 
@@ -182,7 +178,6 @@ class CommandHandler:
 
     def _help_admin(self, nick: str, event: dict) -> bool:
         if not self.config.is_admin_or_above(nick):
-            self._reply(event, "That command is limited to bot admins and above.")
             return False
         prefix = self._prefix()
         lines = [
@@ -194,6 +189,13 @@ class CommandHandler:
             f"{prefix}join <#channel>",
             f"{prefix}part <#channel>",
         ]
+        if self.config.is_owner(nick):
+            lines.extend(
+                [
+                    f"{prefix}adduser <nick> — add a bot user",
+                    f"{prefix}deluser <nick> — remove a bot user added from IRC",
+                ]
+            )
         self._reply(event, lines)
         return True
 
@@ -242,13 +244,11 @@ class CommandHandler:
         site = site.strip()
         if site:
             if target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
-                self._reply(event, "You can unregister your own sites. Bot admins can unregister someone else.")
                 return False
         elif self._owns_site(nick, target):
             site = target
             target = nick
         elif target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
-            self._reply(event, "You can unregister your own sites. Bot admins can unregister someone else.")
             return False
         if not self.registry.unregister(target, site or None):
             where = f" on {site}" if site else ""
@@ -403,6 +403,44 @@ class CommandHandler:
             return False
         self.connection.part(args.split()[0])
         self._reply(event, f"Left {args.split()[0]}")
+        return True
+
+    def cmd_adduser(self, nick: str, event: dict, args: str) -> bool:
+        prefix = self._prefix()
+        parts = args.split()
+        if len(parts) != 1:
+            self._reply(event, f"Usage: {prefix}adduser <nick>")
+            return False
+        target = parts[0]
+        if self.config.is_bot_user(target):
+            self._reply(event, f"{target} is already a bot user.")
+            return False
+        try:
+            status = self.registry.add_bot_user(target, by=nick)
+        except RegistryError as exc:
+            self._reply(event, str(exc))
+            return False
+        if status == "exists":
+            self._reply(event, f"{target} is already a bot user.")
+            return False
+        self._reply(event, f"Added {target} as a bot user.")
+        return True
+
+    def cmd_deluser(self, nick: str, event: dict, args: str) -> bool:
+        prefix = self._prefix()
+        parts = args.split()
+        if len(parts) != 1:
+            self._reply(event, f"Usage: {prefix}deluser <nick>")
+            return False
+        target = parts[0]
+        removed = self.registry.remove_bot_user(target)
+        if self.config.is_bot_user(target):
+            self._reply(event, f"{target} stays a bot user from the settings file.")
+            return False
+        if not removed:
+            self._reply(event, f"{target} is not a bot user added from IRC.")
+            return False
+        self._reply(event, f"Removed bot user {target}.")
         return True
 
     def cmd_reconnect(self, nick: str, event: dict, args: str) -> bool:

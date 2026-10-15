@@ -72,6 +72,12 @@ class Registry:
                     added_by TEXT NOT NULL,
                     added_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS bot_users (
+                    nick TEXT PRIMARY KEY,
+                    display_nick TEXT NOT NULL,
+                    added_by TEXT NOT NULL,
+                    added_at TEXT NOT NULL
+                );
                 """
             )
             self._migrate_registered(conn)
@@ -338,6 +344,44 @@ class Registry:
             conn.execute(
                 "INSERT INTO sqlite_sequence(name, seq) SELECT 'news', COALESCE(MAX(id), 0) FROM news"
             )
+
+    def add_bot_user(self, nick: str, by: str) -> str:
+        nick_key, display = self._nick(nick)
+        actor = (by or "unknown").strip().lower() or "unknown"
+        with self._db() as conn:
+            existing = conn.execute(
+                "SELECT nick FROM bot_users WHERE nick = ?", (nick_key,)
+            ).fetchone()
+            if existing:
+                return "exists"
+            conn.execute(
+                """
+                INSERT INTO bot_users (nick, display_nick, added_by, added_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (nick_key, display, actor, _now()),
+            )
+        return "created"
+
+    def remove_bot_user(self, nick: str) -> bool:
+        try:
+            nick_key, _display = self._nick(nick)
+        except RegistryError:
+            return False
+        with self._db() as conn:
+            cur = conn.execute("DELETE FROM bot_users WHERE nick = ?", (nick_key,))
+            return cur.rowcount > 0
+
+    def is_bot_user(self, nick: str) -> bool:
+        try:
+            nick_key, _display = self._nick(nick)
+        except RegistryError:
+            return False
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT nick FROM bot_users WHERE nick = ?", (nick_key,)
+            ).fetchone()
+        return row is not None
 
     @staticmethod
     def _nick(raw: str) -> tuple[str, str]:
