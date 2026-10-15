@@ -328,6 +328,25 @@ def test_playback_timestamp_is_not_a_command(tmp_path):
     assert conn.sent == []
 
 
+def test_help_from_a_channel_is_a_private_message(tmp_path):
+    handler, conn, _registry = make_handler(tmp_path)
+    handler.handle(channel_event(".help", "OwnerNick", "#insiders"))
+    private = visible_for(conn, "OwnerNick")
+    channel = visible_for(conn, "#insiders")
+    assert ".register" in private
+    assert ".news" in private
+    assert ".register" not in channel
+    assert "private message" in channel
+    conn.sent.clear()
+    handler.handle(channel_event(".help admin", "OwnerNick", "#insiders"))
+    private = visible_for(conn, "OwnerNick")
+    channel = visible_for(conn, "#insiders")
+    assert ".registered" in private
+    assert ".adduser" in private
+    assert ".registered" not in channel
+    assert "private message" in channel
+
+
 def test_help_groups_member_commands_and_hides_admin(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     handler.handle(pm_event(".help", "OwnerNick"))

@@ -52,7 +52,7 @@ Member commands (news and bans) work for a registered nick or any bot user.
 | Command | Who |
 | --- | --- |
 | `.register <site> <position>` | Anyone, for their own nick. Repeat it to add another site or change the position on a site. |
-| `.help` | Anyone |
+| `.help` | Anyone. From a channel the list is sent in a private message. |
 | `.news [count]` | Registered users and bot users |
 | `.addnews [title] <url>` | Registered users and bot users. Reddit hosts are stored as reddit posts; other http(s) links are articles. Leave the title out and the page heading is stored. |
 | `.banned [site]` | Registered users and bot users |

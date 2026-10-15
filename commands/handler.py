@@ -192,7 +192,11 @@ class CommandHandler:
         if topic == "admin":
             return self._help_admin(nick, event)
         if topic:
-            self._reply(event, f"Unknown help topic. Try {self._prefix()}help or {self._prefix()}help admin")
+            self._reply_help(
+                nick,
+                event,
+                f"Unknown help topic. Try {self._prefix()}help or {self._prefix()}help admin",
+            )
             return False
         prefix = self._prefix()
         lines = [
@@ -218,8 +222,15 @@ class CommandHandler:
                 "News and bans unlock after you register, or if your nick is a bot user. "
                 "The nick must be identified with NickServ."
             )
-        self._reply(event, lines)
+        self._reply_help(nick, event, lines)
         return True
+
+    def _reply_help(self, nick: str, event: dict, lines) -> None:
+        if event.get("incoming_type") == "pubmsg":
+            self._reply(event, lines, target=nick)
+            self._reply(event, "Sent help in a private message.")
+            return
+        self._reply(event, lines)
 
     def _help_admin(self, nick: str, event: dict) -> bool:
         if not self._is_admin(nick):
@@ -241,7 +252,7 @@ class CommandHandler:
                     f"{prefix}deluser <nick> — remove a bot user added from IRC",
                 ]
             )
-        self._reply(event, lines)
+        self._reply_help(nick, event, lines)
         return True
 
     def cmd_register(self, nick: str, event: dict, args: str) -> bool:
