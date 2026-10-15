@@ -110,6 +110,7 @@ class Config:
         self.IRC_COMMAND_CHANNELS = self._csv("IRC_COMMAND_CHANNELS")
         self.COMMAND_PREFIX = self._get("COMMAND_PREFIX", ".").strip() or "."
         self.IRC_COLORS = _flag(self._env, "IRC_COLORS", "true")
+        self.REQUIRE_IDENTIFIED = _flag(self._env, "REQUIRE_IDENTIFIED", "true")
         self.NEWS_DEFAULT_LIMIT = max(1, int(self._get("NEWS_DEFAULT_LIMIT", "8")))
         self.NEWS_MAX_LIMIT = max(self.NEWS_DEFAULT_LIMIT, int(self._get("NEWS_MAX_LIMIT", "25")))
         self.IRC_USE_SASL = _flag(self._env, "IRC_USE_SASL", "false")

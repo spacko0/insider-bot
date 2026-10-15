@@ -430,6 +430,7 @@ def test_owner_can_add_and_remove_a_bot_user(tmp_path):
     assert not registry.is_bot_user("NewNick")
     handler.handle(channel_event(".adduser NewNick", "OwnerNick", "#staff"))
     assert "Added NewNick as a bot user." in visible(conn)
+    assert registry.bot_user_role("NewNick") == "torrent_moderators"
     assert registry.is_bot_user("newnick")
     reopened = Registry(registry.path)
     assert reopened.is_bot_user("NewNick")

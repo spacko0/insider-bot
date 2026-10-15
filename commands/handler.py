@@ -214,7 +214,10 @@ class CommandHandler:
         if self._is_admin(nick):
             lines.append(f"{prefix}help admin — admin commands")
         if not self._is_member(nick):
-            lines.append("News and bans unlock after you register, or if your nick is a bot user.")
+            lines.append(
+                "News and bans unlock after you register, or if your nick is a bot user. "
+                "The nick must be identified with NickServ."
+            )
         self._reply(event, lines)
         return True
 
@@ -234,7 +237,7 @@ class CommandHandler:
         if self._is_owner(nick):
             lines.extend(
                 [
-                    f"{prefix}adduser <nick> [role] — add a bot user ({_ROLE_HELP})",
+                    f"{prefix}adduser <nick> [role] — add a bot user. Defaults to bot user, the lowest access ({_ROLE_HELP})",
                     f"{prefix}deluser <nick> — remove a bot user added from IRC",
                 ]
             )

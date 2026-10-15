@@ -16,6 +16,7 @@ from datetime import datetime
 from irc.client import Event, ServerConnection, SimpleIRCClient
 from irc.connection import Factory
 
+from core.identity import NickIdentity
 from utils.irc_format import is_znc_playback
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,10 @@ class IRCConnection(SimpleIRCClient):
         self.last_disconnect_reason = ""
         self._send_skip_log_mono = 0.0
         self._logged_playback_skip = False
+        self.identity = NickIdentity()
+        self.reactor.add_global_handler("quit", self._on_quit)
+        self.reactor.add_global_handler("whoisaccount", self._on_whois_account)
+        self.reactor.add_global_handler("endofwhois", self._on_whois_end)
 
     def is_irc_ready(self) -> bool:
         conn = getattr(self, "connection", None)
@@ -488,10 +493,57 @@ class IRCConnection(SimpleIRCClient):
             return
         logger.info("PM from %s to %s: %s", source, target, text)
 
+    def request_identification(self, nick: str) -> None:
+        """Ask the server and NickServ whether this nick is identified."""
+        conn = getattr(self, "connection", None)
+        if conn is None:
+            self._run_identity(self.identity.expire(nick, self.identity.generation(nick)))
+            return
+        generation = self.identity.generation(nick)
+        try:
+            conn.whois([nick])
+            conn.privmsg("NickServ", f"STATUS {nick}")
+        except Exception:
+            logger.error("Identification check failed for %s", nick, exc_info=True)
+            self._run_identity(self.identity.expire(nick, generation))
+            return
+        timer = threading.Timer(8.0, self._identity_timeout, args=(nick, generation))
+        timer.daemon = True
+        timer.start()
+
+    def _identity_timeout(self, nick: str, generation: int) -> None:
+        self._run_identity(self.identity.expire(nick, generation))
+
+    def _run_identity(self, callbacks) -> None:
+        for callback in callbacks or []:
+            try:
+                callback()
+            except Exception:
+                logger.error("Identified command failed", exc_info=True)
+
+    def _on_quit(self, connection, event):
+        nick = str(event.source or "").split("!")[0].strip()
+        if nick:
+            self.identity.forget(nick)
+
+    def _on_whois_account(self, connection, event):
+        args = [str(part) for part in (event.arguments or [])]
+        if len(args) < 2:
+            return
+        self._run_identity(self.identity.note_account(args[0], args[1]))
+
+    def _on_whois_end(self, connection, event):
+        args = [str(part) for part in (event.arguments or [])]
+        if not args:
+            return
+        self._run_identity(self.identity.note_whois_end(args[0]))
+
     def _on_nick(self, connection, event):
         self.touch_irc_activity()
         new_nick = str(event.arguments[0]).lstrip(":").strip() if event.arguments else ""
         source = str(event.source or "").split("!")[0]
+        if source and new_nick:
+            self.identity.rename(source, new_nick)
         previous = (self.nickname or "").strip()
         real = (getattr(connection, "real_nickname", None) or "").strip()
         if new_nick and source.casefold() in {previous.casefold(), real.casefold(), ""}:
@@ -514,6 +566,8 @@ class IRCConnection(SimpleIRCClient):
         text = event.arguments[0] if event.arguments else ""
         if source.startswith("*"):
             logger.info("Bouncer notice from %s: %s", source, text)
+        if source and text:
+            self._run_identity(self.identity.observe_services(source, text))
         if event.arguments and "You are now identified" in event.arguments[0]:
             logger.info("Authenticated with NickServ")
             if self.config.AUTO_JOIN_CHANNELS:
@@ -581,6 +635,7 @@ class IRCConnection(SimpleIRCClient):
         self._welcome_received = False
         args = getattr(event, "arguments", None) or []
         reason = " ".join(args) if args else "(no server reason string)"
+        self.identity.clear()
         self.last_disconnect_reason = reason
         now = time.monotonic()
         if (

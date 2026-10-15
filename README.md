@@ -39,7 +39,9 @@ That starts a detached session named `insider-bot`. Attach with `tmux attach -t 
 
 ## Two kinds of people
 
-**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`) and nicks the owner adds with `.adduser`. Higher tiers include the lower ones. Owner commands require the owner tier exactly. A nick without access to a command gets no reply.
+**Bot users** are nicks listed in `.env` (`BOT_OWNER`, `CODER`, `TEAM_LEADERS`, `ADMIN_GROUP`, `MODERATORS`, `TORRENT_MODERATORS`, `BOT_USERS`, plus legacy `ADMIN_USERS` / `STAFF_USERS`) and nicks the owner adds with `.adduser`. Higher tiers include the lower ones. Owner commands require the owner tier exactly. A nick without access to a command gets no reply. `.reconnect` and `.exit` stay limited to the owner. Leaving the role off `.adduser` stores a bot user, which is the lowest access.
+
+IRC commands other than `.help` run only while that nick is identified with NickServ. When the nick quits, that confirmation is dropped, so someone who takes the nick after a disconnect cannot use it.
 
 **Registered users** are nicks stored by `.register <site> <position>`. The same nick can be on more than one site, each with its own position. A bot admin sets someone else's site and position with `.update <nick> <site> <position>`.
 

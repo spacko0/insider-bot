@@ -12,6 +12,7 @@ from commands.handler import CommandHandler
 from core.connection import IRCConnection
 from store.registry import Registry
 from utils.config import REPO_ROOT, Config
+from utils.irc_format import is_znc_playback
 from utils.logging import setup_logging
 
 for _sub in ("logs", "data"):
@@ -114,6 +115,10 @@ class Application:
             if not event.arguments:
                 return
             source_nick = event.source.split("!")[0] if event.source else "unknown"
+            text = event.arguments[0]
+            if source_nick.casefold() == "nickserv":
+                self.connection._run_identity(self.connection.identity.observe_services(source_nick, text))
+                return
             if event.type == "privmsg":
                 simulated = {
                     "message": event.arguments[0],
@@ -130,9 +135,32 @@ class Application:
                     "incoming_type": event.type,
                     "incoming_target": event.target,
                 }
+            if self._defer_until_identified(source_nick, text, simulated):
+                return
             self.commands.handle(simulated)
         except Exception:
             logger.error("Error handling IRC message", exc_info=True)
+
+    def _defer_until_identified(self, nick: str, message: str, simulated: dict) -> bool:
+        """True when the command must wait for a NickServ check, or was dropped."""
+        if not self.config.REQUIRE_IDENTIFIED:
+            return False
+        if is_znc_playback(message):
+            return False
+        body = (message or "").strip()
+        prefix = self.config.COMMAND_PREFIX
+        if not body.startswith(prefix):
+            return False
+        command = body[len(prefix) :].strip().split(" ", 1)[0].lower()
+        if not command or command == "help":
+            return False
+        decision = self.connection.identity.authorize(nick, lambda: self.commands.handle(simulated))
+        if decision == "ask":
+            logger.info("Checking NickServ identification for %s", nick)
+            self.connection.request_identification(nick)
+        elif decision == "drop":
+            logger.info("Ignored %s from %s; nick is not identified with NickServ", command, nick)
+        return True
 
     def _connect_irc(self) -> bool:
         if not self.config.IRC_SERVER or not self.config.irc_connect_nickname:
