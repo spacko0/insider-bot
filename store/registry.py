@@ -76,11 +76,13 @@ class Registry:
                     nick TEXT PRIMARY KEY,
                     display_nick TEXT NOT NULL,
                     added_by TEXT NOT NULL,
-                    added_at TEXT NOT NULL
+                    added_at TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'torrent_moderators'
                 );
                 """
             )
             self._migrate_registered(conn)
+            self._migrate_bot_users(conn)
             self._pack_news_ids(conn)
 
     def _migrate_registered(self, conn: sqlite3.Connection) -> None:
@@ -345,21 +347,38 @@ class Registry:
                 "INSERT INTO sqlite_sequence(name, seq) SELECT 'news', COALESCE(MAX(id), 0) FROM news"
             )
 
-    def add_bot_user(self, nick: str, by: str) -> str:
+    def _migrate_bot_users(self, conn: sqlite3.Connection) -> None:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(bot_users)")}
+        if columns and "role" not in columns:
+            conn.execute(
+                "ALTER TABLE bot_users ADD COLUMN role TEXT NOT NULL DEFAULT 'torrent_moderators'"
+            )
+
+    def add_bot_user(self, nick: str, by: str, role: str) -> str:
         nick_key, display = self._nick(nick)
         actor = (by or "unknown").strip().lower() or "unknown"
         with self._db() as conn:
             existing = conn.execute(
-                "SELECT nick FROM bot_users WHERE nick = ?", (nick_key,)
+                "SELECT role FROM bot_users WHERE nick = ?", (nick_key,)
             ).fetchone()
             if existing:
-                return "exists"
+                if existing["role"] == role:
+                    return "exists"
+                conn.execute(
+                    """
+                    UPDATE bot_users
+                    SET display_nick = ?, role = ?, added_by = ?, added_at = ?
+                    WHERE nick = ?
+                    """,
+                    (display, role, actor, _now(), nick_key),
+                )
+                return "updated"
             conn.execute(
                 """
-                INSERT INTO bot_users (nick, display_nick, added_by, added_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO bot_users (nick, display_nick, added_by, added_at, role)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (nick_key, display, actor, _now()),
+                (nick_key, display, actor, _now(), role),
             )
         return "created"
 
@@ -373,15 +392,20 @@ class Registry:
             return cur.rowcount > 0
 
     def is_bot_user(self, nick: str) -> bool:
+        return self.bot_user_role(nick) is not None
+
+    def bot_user_role(self, nick: str) -> str | None:
         try:
             nick_key, _display = self._nick(nick)
         except RegistryError:
-            return False
+            return None
         with self._db() as conn:
             row = conn.execute(
-                "SELECT nick FROM bot_users WHERE nick = ?", (nick_key,)
+                "SELECT role FROM bot_users WHERE nick = ?", (nick_key,)
             ).fetchone()
-        return row is not None
+        if row is None:
+            return None
+        return row["role"] or "torrent_moderators"
 
     @staticmethod
     def _nick(raw: str) -> tuple[str, str]:

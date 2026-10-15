@@ -10,6 +10,7 @@ from commands.format import format_banned, format_news, format_registered
 from commands.urls import classify_url, split_news_args
 from commands.titles import fetch_page_title
 from store.registry import RegistryError
+from utils.config import AUTH_TIER_RANK
 from utils.irc_burst import send_via_connection
 from utils.irc_format import is_znc_playback
 
@@ -19,6 +20,16 @@ PUBLIC_COMMANDS = frozenset({"help", "register"})
 MEMBER_COMMANDS = frozenset({"news", "addnews", "banned", "ban", "banuser", "unregister"})
 ADMIN_COMMANDS = frozenset({"registered", "update", "unban", "delnews", "join", "part"})
 OWNER_COMMANDS = frozenset({"reconnect", "exit", "adduser", "deluser"})
+
+_ROLE_LABELS = {
+    "owner": "owner",
+    "coder": "coder",
+    "team_leaders": "team leader",
+    "admin": "admin",
+    "moderators": "moderator",
+    "torrent_moderators": "bot user",
+}
+_ROLE_HELP = "bot user, moderator, admin, team leader, coder, or owner"
 
 
 class CommandHandler:
@@ -64,11 +75,11 @@ class CommandHandler:
                     return False
                 return self._dispatch(command, nick, event, args)
             if command in ADMIN_COMMANDS:
-                if not self.config.is_admin_or_above(nick):
+                if not self._is_admin(nick):
                     return False
                 return self._dispatch(command, nick, event, args)
             if command in OWNER_COMMANDS:
-                if not self.config.is_owner(nick):
+                if not self._is_owner(nick):
                     return False
                 return self._dispatch(command, nick, event, args)
             if self._is_member(nick):
@@ -84,6 +95,37 @@ class CommandHandler:
         if handler is None:
             return False
         return bool(handler(nick, event, args))
+
+    def _nick_only(self, username: str) -> str:
+        return (username or "").split("!")[0].strip()
+
+    def _rank(self, username: str) -> int:
+        nick = self._nick_only(username)
+        if nick.lower() == "terminal":
+            return AUTH_TIER_RANK["owner"]
+        stored = AUTH_TIER_RANK.get(self.registry.bot_user_role(nick) or "", 0)
+        return max(self.config.user_rank(nick), stored)
+
+    def _is_admin(self, username: str) -> bool:
+        return self._rank(username) >= AUTH_TIER_RANK["admin"]
+
+    def _is_owner(self, username: str) -> bool:
+        nick = self._nick_only(username)
+        if nick.lower() == "terminal":
+            return True
+        if self.config.is_owner(nick):
+            return True
+        return self.registry.bot_user_role(nick) == "owner"
+
+    def _role_phrase(self, tier: str) -> str:
+        label = _ROLE_LABELS.get(tier, tier.replace("_", " "))
+        article = "an" if label[:1] in "aeiou" else "a"
+        return f"{article} {label}"
+
+    def _parse_role(self, text: str) -> str | None:
+        token = " ".join((text or "bot user").split()).lower().replace("-", " ").replace("_", " ")
+        token = "_".join(token.split())
+        return self.config._normalize_tier_token(token)
 
     def _is_member(self, nick: str) -> bool:
         if nick.lower() == "terminal":
@@ -116,7 +158,7 @@ class CommandHandler:
             if command in MEMBER_COMMANDS:
                 return True
             min_rank = self.config.pubmsg_min_rank_for_channel(channel)
-            if min_rank > 0 and self.config.user_rank(event.get("source") or "") < min_rank:
+            if min_rank > 0 and self._rank(event.get("source") or "") < min_rank:
                 return False
             return True
         return True
@@ -169,7 +211,7 @@ class CommandHandler:
                     f"{prefix}banuser <user> [site] <reason> — same as {prefix}ban",
                 ]
             )
-        if self.config.is_admin_or_above(nick):
+        if self._is_admin(nick):
             lines.append(f"{prefix}help admin — admin commands")
         if not self._is_member(nick):
             lines.append("News and bans unlock after you register, or if your nick is a bot user.")
@@ -177,7 +219,7 @@ class CommandHandler:
         return True
 
     def _help_admin(self, nick: str, event: dict) -> bool:
-        if not self.config.is_admin_or_above(nick):
+        if not self._is_admin(nick):
             return False
         prefix = self._prefix()
         lines = [
@@ -189,10 +231,10 @@ class CommandHandler:
             f"{prefix}join <#channel>",
             f"{prefix}part <#channel>",
         ]
-        if self.config.is_owner(nick):
+        if self._is_owner(nick):
             lines.extend(
                 [
-                    f"{prefix}adduser <nick> — add a bot user",
+                    f"{prefix}adduser <nick> [role] — add a bot user ({_ROLE_HELP})",
                     f"{prefix}deluser <nick> — remove a bot user added from IRC",
                 ]
             )
@@ -243,12 +285,12 @@ class CommandHandler:
         target, _, site = text.partition(" ")
         site = site.strip()
         if site:
-            if target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
+            if target.lower() != nick.lower() and not self._is_admin(nick):
                 return False
         elif self._owns_site(nick, target):
             site = target
             target = nick
-        elif target.lower() != nick.lower() and not self.config.is_admin_or_above(nick):
+        elif target.lower() != nick.lower() and not self._is_admin(nick):
             return False
         if not self.registry.unregister(target, site or None):
             where = f" on {site}" if site else ""
@@ -407,23 +449,36 @@ class CommandHandler:
 
     def cmd_adduser(self, nick: str, event: dict, args: str) -> bool:
         prefix = self._prefix()
-        parts = args.split()
-        if len(parts) != 1:
-            self._reply(event, f"Usage: {prefix}adduser <nick>")
+        parts = args.split(maxsplit=1)
+        if not parts or not parts[0].strip():
+            self._reply(event, f"Usage: {prefix}adduser <nick> [role]")
             return False
-        target = parts[0]
-        if self.config.is_bot_user(target):
-            self._reply(event, f"{target} is already a bot user.")
+        target = parts[0].strip()
+        role = self._parse_role(parts[1] if len(parts) > 1 else "bot user")
+        if role is None:
+            self._reply(event, f"Unknown role. Use {_ROLE_HELP}.")
+            return False
+        phrase = self._role_phrase(role)
+        env_rank = self.config.user_rank(target)
+        if env_rank >= AUTH_TIER_RANK[role]:
+            current = self.config.resolve_user_auth_tier(target) or "torrent_moderators"
+            self._reply(
+                event,
+                f"{target} is already {self._role_phrase(current)} from the settings file.",
+            )
             return False
         try:
-            status = self.registry.add_bot_user(target, by=nick)
+            status = self.registry.add_bot_user(target, by=nick, role=role)
         except RegistryError as exc:
             self._reply(event, str(exc))
             return False
         if status == "exists":
-            self._reply(event, f"{target} is already a bot user.")
+            self._reply(event, f"{target} is already {phrase}.")
             return False
-        self._reply(event, f"Added {target} as a bot user.")
+        if status == "updated":
+            self._reply(event, f"Updated {target} to {phrase}.")
+            return True
+        self._reply(event, f"Added {target} as {phrase}.")
         return True
 
     def cmd_deluser(self, nick: str, event: dict, args: str) -> bool:

@@ -26,6 +26,7 @@ AUTH_TIER_RANK: Dict[str, int] = {
 AUTH_TIER_ALIASES: Dict[str, str] = {
     "mods": "moderators",
     "mod": "moderators",
+    "moderator": "moderators",
     "staff": "moderators",
     "tor": "torrent_moderators",
     "tors": "torrent_moderators",
@@ -36,6 +37,7 @@ AUTH_TIER_ALIASES: Dict[str, str] = {
     "admin": "admin",
     "admins": "admin",
     "team_lead": "team_leaders",
+    "team_leader": "team_leaders",
     "teamlead": "team_leaders",
     "tl": "team_leaders",
     "dev": "coder",

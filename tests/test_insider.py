@@ -451,6 +451,33 @@ def test_owner_can_add_and_remove_a_bot_user(tmp_path):
     assert conn.sent == []
 
 
+def test_owner_sets_a_bot_user_role(tmp_path):
+    handler, conn, registry = make_handler(tmp_path)
+    handler.handle(channel_event(".adduser NewNick poster", "OwnerNick", "#staff"))
+    assert "Unknown role" in visible(conn)
+    assert not registry.is_bot_user("NewNick")
+    conn.sent.clear()
+    handler.handle(channel_event(".adduser NewNick moderator", "OwnerNick", "#staff"))
+    assert "Added NewNick as a moderator." in visible(conn)
+    assert registry.bot_user_role("NewNick") == "moderators"
+    conn.sent.clear()
+    handler.handle(channel_event(".registered", "NewNick", "#staff"))
+    assert conn.sent == []
+    handler.handle(channel_event(".adduser NewNick admin", "OwnerNick", "#staff"))
+    assert "Updated NewNick to an admin." in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".registered", "NewNick", "#staff"))
+    assert "No registered users." in visible(conn)
+    conn.sent.clear()
+    handler.handle(channel_event(".adduser Bob admin", "OwnerNick", "#staff"))
+    assert "Added Bob as an admin." in visible(conn)
+    assert handler._is_admin("Bob")
+    conn.sent.clear()
+    handler.handle(channel_event(".help admin", "NewNick"))
+    assert ".adduser" not in visible(conn)
+    assert ".registered" in visible(conn)
+
+
 def test_moderator_below_channel_rank_is_silent_for_admin_command(tmp_path):
     handler, conn, _registry = make_handler(tmp_path)
     handler.handle(channel_event(".registered", "ModNick", "#staff"))

@@ -62,7 +62,7 @@ Member commands (news and bans) work for a registered nick or any bot user.
 | `.delnews <id>` | Bot admins and above |
 | `.join <#channel>` / `.part <#channel>` | Bot admins and above |
 | `.reconnect` / `.exit` | Bot owner |
-| `.adduser <nick>` / `.deluser <nick>` | Bot owner. Adds or removes a bot user stored in the database. Nicks set in `.env` stay until that file changes. |
+| `.adduser <nick> [role]` / `.deluser <nick>` | Bot owner. Role is `bot user` (the default), `moderator`, `admin`, `team leader`, `coder`, or `owner`. Nicks set in `.env` keep that role until the file changes. |
 
 `.registered` and `.banned` are tables. Registered columns are date, site, user, and position. Banned columns are date, site, user, and reason.
 
