@@ -9,10 +9,11 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from commands.urls import classify_url
+from version import __version__
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = "insider-bot/0.1 (news titles)"
+_USER_AGENT = f"insider-bot/{__version__} (news titles)"
 _READ_LIMIT = 65536
 _TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _OG_TITLE = re.compile(

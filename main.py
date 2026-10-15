@@ -14,6 +14,7 @@ from store.registry import Registry
 from utils.config import REPO_ROOT, Config
 from utils.irc_format import is_znc_playback
 from utils.logging import setup_logging
+from version import __version__
 
 for _sub in ("logs", "data"):
     (REPO_ROOT / _sub).mkdir(parents=True, exist_ok=True)
@@ -222,7 +223,7 @@ class Application:
         self._terminal_thread.start()
 
     def main_loop(self) -> None:
-        logger.info("InsiderBot running")
+        logger.info("InsiderBot %s running", __version__)
         while not self.exiter.should_exit():
             time.sleep(0.5)
         logger.info("Main loop exiting")

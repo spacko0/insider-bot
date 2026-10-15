@@ -4,7 +4,7 @@ IRC bot for a private roster of people, the sites they work on, news links, and 
 
 Commands use a `.` prefix. Run it with its own nick. If you use ZNC, give it its own user (for example `InsiderBot/Network`) and set `IRC_SERVER` to that bouncer. One bouncer login holds one IRC nick, so a shared login will not receive private messages sent to a different nick.
 
-**Version:** [`version.py`](version.py)
+**Version:** 0.2.0 ([`version.py`](version.py)). History: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Requirements
 
